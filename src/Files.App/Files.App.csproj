@@ -17,7 +17,7 @@
         <GenerateTestArtifacts>False</GenerateTestArtifacts>
         <AppxBundle>Always</AppxBundle>
         <DisableXbfLineInfo>False</DisableXbfLineInfo>
-        <AppxBundlePlatforms>x86|x64|arm64</AppxBundlePlatforms>
+        <AppxBundlePlatforms>x64</AppxBundlePlatforms>
         <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
         <Nullable>Enable</Nullable>
         <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -40,6 +40,8 @@
 
     <PropertyGroup>
         <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+        <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
+        <PackageCertificateThumbprint>09F02332E21DA87A06B903F328B2FE9B25F61911</PackageCertificateThumbprint>
     </PropertyGroup>
   
     <ItemGroup>
@@ -152,9 +154,7 @@
     <!-- Files.App.Server is an out-of-process COM server, not a project reference.
          Build it before we resolve assemblies so its .winmd is available for CsWinRT. -->
     <Target Name="BuildFilesAppServer" BeforeTargets="ResolveAssemblyReferences">
-        <MSBuild Projects="..\Files.App.Server\Files.App.Server.csproj"
-                 Targets="Build"
-                 Properties="Configuration=$(Configuration);Platform=$(Platform)" />
+        <MSBuild Projects="..\Files.App.Server\Files.App.Server.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
     </Target>
 
     <Import Project="..\Satori.targets" Condition=" '$(Platform)' != 'x86' " />
