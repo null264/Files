@@ -421,7 +421,8 @@ namespace Files.App.Helpers
 		public static Task<bool> MountVhdDisk(string vhdPath)
 		{
 			// Mounting requires elevation
-			return RunPowershellCommandAsync($"-command \"Mount-DiskImage -ImagePath '{vhdPath}'\"", PowerShellExecutionOptions.Elevated | PowerShellExecutionOptions.Hidden);
+			//return RunPowershellCommandAsync($"-command \"Mount-DiskImage -ImagePath '{vhdPath}'\"", PowerShellExecutionOptions.Elevated | PowerShellExecutionOptions.Hidden);
+			return RunPowershellCommandAsync($"explorer '{vhdPath}'\"", PowerShellExecutionOptions.Hidden);
 		}
 
 		public static Bitmap? GetBitmapFromHBitmap(HBITMAP hBitmap)
