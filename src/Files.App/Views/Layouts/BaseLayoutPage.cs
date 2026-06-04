@@ -586,6 +586,12 @@ namespace Files.App.Views.Layouts
 		{
 			base.OnNavigatingFrom(e);
 
+			// Stop timers that may fire after navigating away
+			jumpTimer.Stop();
+			dragOverTimer.Stop();
+			tapDebounceTimer.Stop();
+			hoverTimer.Stop();
+
 			// Remove item jumping handler
 			CharacterReceived -= Page_CharacterReceived;
 			FolderSettings!.LayoutModeChangeRequested -= BaseFolderSettings_LayoutModeChangeRequested;
@@ -1454,6 +1460,10 @@ namespace Files.App.Views.Layouts
 
 		public virtual void Dispose()
 		{
+			jumpTimer.Stop();
+			dragOverTimer.Stop();
+			tapDebounceTimer.Stop();
+			hoverTimer.Stop();
 			UnhookBaseEvents();
 		}
 
