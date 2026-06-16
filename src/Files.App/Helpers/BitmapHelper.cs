@@ -1,14 +1,15 @@
 // Copyright (c) Files Community
 // Licensed under the MIT License.
 
+using System.IO;
+using System.IO.Hashing;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
-using System.IO;
 using Windows.Foundation.Metadata;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.Streams;
-using Microsoft.Extensions.Caching.Memory;
 
 namespace Files.App.Helpers
 {
@@ -24,8 +25,8 @@ namespace Files.App.Helpers
 			if (data is null)
 				return null;
 
-			string surrogateKey = GenerateFastFingerprint(data);
-			string fullCacheKey = $"{surrogateKey}_{decodeSize}";
+			ulong hash = XxHash64.HashToUInt64(data);
+			var fullCacheKey = (ImageHash: hash, DecodeSize: decodeSize);
 
 			Task<BitmapImage?> bitmapTask = ImageCache.GetOrCreate(fullCacheKey, entry =>
 			{
@@ -70,30 +71,6 @@ namespace Files.App.Helpers
 			{
 				return null;
 			}
-		}
-
-		private static string GenerateFastFingerprint(ReadOnlySpan<byte> data)
-		{
-			if (data.Length < 64)
-			{
-				return $"{data.Length}_{Convert.ToBase64String(data)}";
-			}
-
-			int len = data.Length;
-
-			long head = BitConverter.ToInt64(data.Slice(0, 8));
-			long tail = BitConverter.ToInt64(data.Slice(len - 8, 8));
-
-			// Stride Sampling
-			int step = len / 16;
-			long sampleHash = 0;
-			for (int i = 0; i < 16; i++)
-			{
-				// DJB2/Fowler-Noll-Vo with zero allocation
-				sampleHash = (sampleHash * 31) + data[i * step];
-			}
-
-			return $"{len}_{head:X}_{tail:X}_{sampleHash:X}";
 		}
 
 		/// <summary>
