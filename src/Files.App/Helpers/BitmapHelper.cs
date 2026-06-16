@@ -74,22 +74,26 @@ namespace Files.App.Helpers
 
 		private static string GenerateFastFingerprint(ReadOnlySpan<byte> data)
 		{
-			// 针对极小的字节数组，直接转换为 Base64 作为 Key
-			if (data.Length < 32)
+			if (data.Length < 64)
 			{
 				return $"{data.Length}_{Convert.ToBase64String(data)}";
 			}
 
-			// 针对正常图片，读取【文件头 16 字节】和【文件尾 16 字节】作为特征
-			// 图片的文件头包含 Magic Number（如 PNG, JFIF 标记），文件尾包含数据结束标记或元数据
-			// 结合文件总长度，碰撞概率几乎为 0，且完全不需要对几百 KB 的数组做全量 Hash 计算
-			long head1 = BitConverter.ToInt64(data.Slice(0, 8));
-			long head2 = BitConverter.ToInt64(data.Slice(8, 8));
-			long tail1 = BitConverter.ToInt64(data.Slice(data.Length - 16, 8));
-			long tail2 = BitConverter.ToInt64(data.Slice(data.Length - 8, 8));
+			int len = data.Length;
 
-			// 使用十六进制格式化字符串，保证 Key 的紧凑性
-			return $"{data.Length}_{head1:X}_{head2:X}_{tail1:X}_{tail2:X}";
+			long head = BitConverter.ToInt64(data.Slice(0, 8));
+			long tail = BitConverter.ToInt64(data.Slice(len - 8, 8));
+
+			// Stride Sampling
+			int step = len / 16;
+			long sampleHash = 0;
+			for (int i = 0; i < 16; i++)
+			{
+				// DJB2/Fowler-Noll-Vo with zero allocation
+				sampleHash = (sampleHash * 31) + data[i * step];
+			}
+
+			return $"{len}_{head:X}_{tail:X}_{sampleHash:X}";
 		}
 
 		/// <summary>
