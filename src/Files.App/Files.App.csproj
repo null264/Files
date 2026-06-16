@@ -40,8 +40,6 @@
 
     <PropertyGroup>
         <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
-        <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
-        <PackageCertificateThumbprint>04B533DF98440384003F1FE25B26D3A3989E269B</PackageCertificateThumbprint>
     </PropertyGroup>
   
     <ItemGroup>
