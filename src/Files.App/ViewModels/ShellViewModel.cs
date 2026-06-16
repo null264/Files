@@ -1199,18 +1199,35 @@ namespace Files.App.ViewModels
 								App.Logger.LogWarning("Thumbnail load failed [{Id}] '{Extension}'; scheduling 2s timer retry.", item.ItemPath.GetHashCode(), Path.GetExtension(item.ItemPath));
 
 								var retryToken = retryCts.Token;
-								_ = Task.Delay(2000, retryToken)
-									.ContinueWith(_ =>
+
+								_ = StartDelayedRetryAsync();
+
+								async Task StartDelayedRetryAsync()
+								{
+									try
 									{
+										await Task.Delay(2000, retryToken);
+
 										if (thumbnailRetryDebounce.TryRemove(item.ItemPath, out var cts))
-											cts.Dispose();
+										{
+											using (cts)
+											{
+												App.Logger.LogInformation("Timer-based thumbnail retry firing [{Id}] '{Extension}'.", item.ItemPath.GetHashCode(), Path.GetExtension(item.ItemPath));
 
-										App.Logger.LogInformation("Timer-based thumbnail retry firing [{Id}] '{Extension}'.", item.ItemPath.GetHashCode(), Path.GetExtension(item.ItemPath));
-
-										item.NeedsDelayedThumbnailLoad = false;
-										return LoadThumbnailAsync(item, retryToken, scheduleTimerRetry: false);
-									}, retryToken, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default)
-									.Unwrap();
+												item.NeedsDelayedThumbnailLoad = false;
+												await LoadThumbnailAsync(item, retryToken, scheduleTimerRetry: false);
+											}
+										}
+									}
+									catch (OperationCanceledException)
+									{
+										App.Logger.LogInformation("Thumbnail retry timer cancelled for '{Path}'.", item.ItemPath);
+									}
+									catch (Exception ex)
+									{
+										App.Logger.LogError(ex, "Error occurred during thumbnail retry pipeline.");
+									}
+								}
 							}
 							else
 							{
