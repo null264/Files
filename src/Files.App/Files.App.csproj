@@ -41,7 +41,7 @@
     <PropertyGroup>
         <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
         <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
-        <PackageCertificateThumbprint>09F02332E21DA87A06B903F328B2FE9B25F61911</PackageCertificateThumbprint>
+        <PackageCertificateThumbprint>04B533DF98440384003F1FE25B26D3A3989E269B</PackageCertificateThumbprint>
     </PropertyGroup>
   
     <ItemGroup>
@@ -90,6 +90,7 @@
         <PackageReference Include="LibGit2Sharp" />
         <PackageReference Include="MessageFormat" />
         <PackageReference Include="Microsoft.Data.Sqlite.Core" />
+        <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
         <PackageReference Include="Microsoft.Extensions.Hosting" />
         <PackageReference Include="Microsoft.Extensions.Logging" />
