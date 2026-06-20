@@ -40,7 +40,7 @@ namespace Files.App.Data.Items
 
 			thumbnailData = result;
 
-			var bitmapImage = await MainWindow.Instance.DispatcherQueue.EnqueueOrInvokeAsync(() => thumbnailData.ToBitmapAsync(), Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal);
+			var bitmapImage = await MainWindow.Instance.DispatcherQueue.EnqueueOrInvokeAsync(async () => await thumbnailData.ToBitmapAsync(), Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal);
 			if (bitmapImage is not null)
 				Thumbnail = bitmapImage;
 		}

@@ -1604,7 +1604,7 @@ namespace Files.App.ViewModels
 					IconOptions.ReturnIconOnly | IconOptions.UseCurrentScale);
 
 				if (result is not null && !item.IsShortcut)
-					groupImage = await dispatcherQueue.EnqueueOrInvokeAsync(() => result.ToBitmapAsync(), Microsoft.UI.Dispatching.DispatcherQueuePriority.Low);
+					groupImage = await dispatcherQueue.EnqueueOrInvokeAsync(async () => await result.ToBitmapAsync(), Microsoft.UI.Dispatching.DispatcherQueuePriority.Low);
 
 				// The groupImage is null if loading icon from fulltrust process failed
 				if (!item.IsShortcut && !item.IsHiddenItem && !FtpHelpers.IsFtpPath(item.ItemPath) && groupImage is null)

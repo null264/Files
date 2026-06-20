@@ -20,7 +20,7 @@ namespace Files.App.Helpers
 			SizeLimit = 400
 		});
 
-		public static async Task<BitmapImage?> ToBitmapAsync(this byte[]? data, int decodeSize = -1)
+		public static async ValueTask<BitmapImage?> ToBitmapAsync(this byte[]? data, int decodeSize = -1)
 		{
 			if (data is null)
 				return null;
@@ -37,7 +37,15 @@ namespace Files.App.Helpers
 				return CreateBitmapCoreAsync(data, decodeSize);
 			})!;
 
-			var result = await bitmapTask;
+			BitmapImage? result;
+			if (bitmapTask.IsCompletedSuccessfully)
+			{
+				result = bitmapTask.Result;
+			}
+			else
+			{
+				result = await bitmapTask;
+			}
 
 			if (result is null)
 			{
