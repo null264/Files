@@ -73,7 +73,7 @@ namespace Files.App
 						if (ppm.IsEmpty())
 							rootFrame.Navigate(typeof(MainPage), null, new SuppressNavigationTransitionInfo());
 						else
-							await InitializeFromCmdLineArgsAsync(rootFrame, ppm, Environment.CurrentDirectory);
+							await InitializeFromCmdLineArgsAsync(rootFrame, ppm, Program.ConsumeLaunchCwd());
 					}
 					else if (rootFrame.Content is null || rootFrame.Content is SplashScreenPage || !MainPageViewModel.AppInstances.Any())
 					{
@@ -108,7 +108,11 @@ namespace Files.App
 					else
 					{
 						var parsedArgs = eventArgs.Uri.Query.TrimStart('?').Split('=');
-						var unescapedValue = Uri.UnescapeDataString(parsedArgs[1]);
+						var unescapedValue = Uri.UnescapeDataString(parsedArgs[1].Split('&')[0]);
+						if (parsedArgs[0] == "tab" && parsedArgs.Length > 3 &&
+							int.TryParse(parsedArgs[2].Split('&')[0], out var dx) &&
+							int.TryParse(parsedArgs[3], out var dy))
+							AppWindow?.Move(new(dx - 100, dy - 16));
 						var folder = (StorageFolder)await FilesystemTasks.Wrap(() => StorageFolder.GetFolderFromPathAsync(unescapedValue).AsTask());
 						if (folder is not null && !string.IsNullOrEmpty(folder.Path))
 						{
