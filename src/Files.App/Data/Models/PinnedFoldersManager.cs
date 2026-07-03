@@ -51,6 +51,7 @@ namespace Files.App.Data.Models
 				RemoveStaleSidebarItems();
 				await AddAllItemsToSidebarAsync();
 			}
+			catch (TaskCanceledException) { }
 			finally
 			{
 				addSyncSemaphore.Release();
