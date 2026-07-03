@@ -44,6 +44,9 @@ namespace Files.App
 		public static AppModel AppModel { get; private set; } = null!;
 		public static ILogger Logger { get; private set; } = NullLogger.Instance;
 
+		private static CancellationTokenSource _hideCts = new();
+		public static CancellationToken WindowHideToken => _hideCts.Token;
+
 		/// <summary>
 		/// Initializes an instance of <see cref="App"/>.
 		/// </summary>
@@ -210,6 +213,8 @@ namespace Files.App
 				return;
 			}
 
+
+
 			// Save the current tab list in case it was overwriten by another instance
 			if (userSettingsService.GeneralSettingsService.ContinueLastSessionOnStartUp || userSettingsService.AppSettingsService.RestoreTabsOnStartup)
 				AppLifecycleHelper.SaveSessionTabs();
@@ -248,6 +253,11 @@ namespace Files.App
 				MainWindow.Instance.AppWindow.Hide();
 				AppModel.IsMainWindowClosed = true;
 
+				// cancel all pending STA tasks only when LeaveAppRunning is enabled
+				_hideCts.Cancel();
+				//STATask.WaitForWorkers();
+				Logger.LogInformation("All pending STA tasks have been canceled.");
+
 				// Close all tabs
 				MainPageViewModel.AppInstances.ForEach(tabItem => tabItem.Unload());
 				MainPageViewModel.AppInstances.Clear();
@@ -273,6 +283,9 @@ namespace Files.App
 
 				if (Program.Pool.WaitOne())
 				{
+					// reset the cts for new tasks
+					_hideCts = new();
+
 					// Resume the instance
 					Program.Pool.Dispose();
 					Program.Pool = null;

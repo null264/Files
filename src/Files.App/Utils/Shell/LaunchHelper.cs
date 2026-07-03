@@ -184,7 +184,7 @@ namespace Files.App.Utils.Shell
 							}
 
 							return true;
-						}, App.Logger);
+						}, App.Logger, App.WindowHideToken);
 
 						if (!opened)
 						{
@@ -198,7 +198,7 @@ namespace Files.App.Utils.Shell
 										await cMenu.InvokeItem(cMenu.Items.FirstOrDefault()?.ID ?? -1);
 
 									return true;
-								}, App.Logger);
+								}, App.Logger, App.WindowHideToken);
 							}
 						}
 

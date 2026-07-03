@@ -121,7 +121,7 @@ namespace Files.App.Services
 					}
 				}
 				return locations;
-			}, App.Logger);
+			}, App.Logger, App.WindowHideToken);
 
 			return (networkLocations ?? Enumerable.Empty<ShellLinkItem>()).Select(item =>
 			{
@@ -188,13 +188,13 @@ namespace Files.App.Services
 		/// <inheritdoc/>
 		public Task<NetworkAvailability?> GetNetworkAvailabilityAsync()
 		{
-			return STATask.Run<NetworkAvailability?>(() => DetectionAndSharingHelper.GetNetworkAvailability(), App.Logger);
+			return STATask.Run<NetworkAvailability?>(() => DetectionAndSharingHelper.GetNetworkAvailability(), App.Logger, App.WindowHideToken);
 		}
 
 		/// <inheritdoc/>
 		public Task OpenNetworkSharingSettingsAsync()
 		{
-			return STATask.Run(DetectionAndSharingHelper.OpenNetworkSharingSettings, App.Logger);
+			return STATask.Run(DetectionAndSharingHelper.OpenNetworkSharingSettings, App.Logger, App.WindowHideToken);
 		}
 
 		/// <inheritdoc/>
@@ -217,7 +217,7 @@ namespace Files.App.Services
 					MainWindow.Instance.WindowHandle,
 					useMostRecentPath: true,
 					hideRestoreConnectionCheckBox: false);
-			}, App.Logger);
+			}, App.Logger, App.WindowHideToken);
 		}
 
 		/// <inheritdoc/>

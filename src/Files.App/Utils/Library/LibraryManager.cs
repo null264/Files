@@ -90,7 +90,7 @@ namespace Files.App.Utils.Library
 				}
 
 				return [];
-			}, App.Logger);
+			}, App.Logger, App.WindowHideToken);
 
 			return libraries.Select(lib => new LibraryLocationItem(lib)).ToList();
 		}
@@ -150,7 +150,7 @@ namespace Files.App.Utils.Library
 				}
 
 				return Task.FromResult<ShellLibraryItem>(null);
-			}, App.Logger));
+			}, App.Logger, App.WindowHideToken));
 
 			if (newLib is not null)
 			{
@@ -231,7 +231,7 @@ namespace Files.App.Utils.Library
 				}
 
 				return Task.FromResult<ShellLibraryItem>(null);
-			}, App.Logger);
+			}, App.Logger, App.WindowHideToken);
 
 			var newLib = item is not null ? new LibraryLocationItem(item) : null;
 			if (newLib is not null)

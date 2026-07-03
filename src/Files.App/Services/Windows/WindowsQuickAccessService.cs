@@ -66,7 +66,7 @@ namespace Files.App.Services
 						await STATask.Run(async () =>
 						{
 							fi.InvokeVerb("unpinfromhome");
-						}, App.Logger);
+						}, App.Logger, App.WindowHideToken);
 						continue;
 					}
 				}
@@ -76,7 +76,7 @@ namespace Files.App.Services
 					await STATask.Run(async () =>
 					{
 						fi.InvokeVerb("unpinfromhome");
-					}, App.Logger);
+					}, App.Logger, App.WindowHideToken);
 				}
 			}
 

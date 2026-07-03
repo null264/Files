@@ -124,7 +124,7 @@ namespace Files.App.Services
 				{
 					return false;
 				}
-			}, App.Logger);
+			}, App.Logger, App.WindowHideToken);
 		}
 
 		private unsafe bool RestoreAllTrashesInternal()

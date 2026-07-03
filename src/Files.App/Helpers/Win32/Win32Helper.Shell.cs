@@ -78,7 +78,7 @@ namespace Files.App.Helpers
 				}
 
 				return (folder, flc);
-			}, App.Logger);
+			}, App.Logger, App.WindowHideToken);
 		}
 
 		public static unsafe string GetFolderFromKnownFolderGUID(Guid guid)
