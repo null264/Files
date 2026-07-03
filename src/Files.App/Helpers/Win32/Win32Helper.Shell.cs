@@ -23,7 +23,7 @@ namespace Files.App.Helpers
 				path = $"shell:{path}";
 			}
 
-			return await STATask.Run(() =>
+			return await STATask.Run(token =>
 			{
 				var flc = new List<ShellFileItem>();
 				var folder = (ShellFileItem)null;
@@ -31,6 +31,7 @@ namespace Files.App.Helpers
 				try
 				{
 					using var shellFolder = ShellFolderExtensions.GetShellItemFromPathOrPIDL(path) as ShellFolder;
+					token.ThrowIfCancellationRequested();
 					using ShellFolder _controlPanel = new(Shell32.KNOWNFOLDERID.FOLDERID_ControlPanelFolder);
 					using ShellFolder _controlPanelCategoryView = new("::{26EE0668-A00A-44D7-9371-BEB064C98683}");
 

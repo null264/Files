@@ -98,13 +98,14 @@ namespace Files.App.Services
 		/// <inheritdoc/>
 		public async Task<IEnumerable<IFolder>> GetShortcutsAsync()
 		{
-			var networkLocations = await STATask.Run(() =>
+			var networkLocations = await STATask.Run(token =>
 			{
 				var locations = new List<ShellLinkItem>();
 				using (var netHood = new ShellFolder(Shell32.KNOWNFOLDERID.FOLDERID_NetHood))
 				{
 					foreach (var item in netHood)
 					{
+						token.ThrowIfCancellationRequested();
 						if (item is ShellLink link)
 						{
 							locations.Add(ShellFolderExtensions.GetShellLinkItem(link));
@@ -188,7 +189,7 @@ namespace Files.App.Services
 		/// <inheritdoc/>
 		public Task<NetworkAvailability?> GetNetworkAvailabilityAsync()
 		{
-			return STATask.Run<NetworkAvailability?>(() => DetectionAndSharingHelper.GetNetworkAvailability(), App.Logger, App.WindowHideToken);
+			return STATask.Run<NetworkAvailability?>(token => DetectionAndSharingHelper.GetNetworkAvailability(), App.Logger, App.WindowHideToken);
 		}
 
 		/// <inheritdoc/>
@@ -211,7 +212,7 @@ namespace Files.App.Services
 		/// <inheritdoc/>
 		public Task OpenMapNetworkDriveDialogAsync()
 		{
-			return STATask.Run(() =>
+			return STATask.Run(token =>
 			{
 				return CommonDialogService.Open_NetworkConnectionDialog(
 					MainWindow.Instance.WindowHandle,

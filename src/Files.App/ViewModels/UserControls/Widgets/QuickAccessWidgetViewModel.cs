@@ -239,7 +239,7 @@ namespace Files.App.ViewModels.UserControls.Widgets
 			}
 
 			// Pin to Quick Access on Windows
-			hr = await STATask.Run(() =>
+			hr = await STATask.Run(token =>
 			{
 				unsafe
 				{
@@ -268,7 +268,7 @@ namespace Files.App.ViewModels.UserControls.Widgets
 			}
 
 			// Unpin from Quick Access on Windows
-			hr = await STATask.Run(() =>
+			hr = await STATask.Run(token =>
 			{
 				unsafe
 				{
