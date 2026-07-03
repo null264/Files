@@ -240,6 +240,11 @@ namespace Files.App.Data.Models
 		public async void LoadAsync(object? sender, FileSystemEventArgs e)
 		{
 			await LoadAsync();
+			try
+			{
+				var pinnedFolders = await QuickAccessService.GetPinnedFoldersAsync();
+			}
+			catch (TaskCanceledException) { return; }
 			App.QuickAccessManager.UpdateQuickAccessWidget?.Invoke(null, new ModifyQuickAccessEventArgs((await QuickAccessService.GetPinnedFoldersAsync()).ToArray(), true)
 			{
 				Reset = true
