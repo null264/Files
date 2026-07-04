@@ -1,6 +1,7 @@
 // Copyright (c) Files Community
 // SPDX-License-Identifier: MPL-2.0
 
+using System.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace Files.App.Storage
@@ -18,14 +19,16 @@ namespace Files.App.Storage
 			new(() => new STATaskPool(GetWorkerCount()),
 				LazyThreadSafetyMode.ExecutionAndPublication);
 
+		public static void WaitForWorkers() => _pool.Value.WaitForRunningTasksToComplete();
+
 		/// <summary>
 		/// Schedules the specified work to execute on a pooled STA thread.
 		/// </summary>
 		/// <param name="action">The work to execute in the STA thread.</param>
 		/// <param name="logger">A logger to capture any exception that occurs during execution.</param>
 		/// <returns>A <see cref="Task"/> that represents the work scheduled to execute in the STA thread.</returns>
-		public static Task Run(Action action, ILogger? logger)
-			=> _pool.Value.Enqueue(action, logger);
+		public static Task Run(Action<CancellationToken> action, ILogger? logger, CancellationToken token)
+			=> _pool.Value.Enqueue(action, logger, token);
 
 		/// <summary>
 		/// Schedules the specified work to execute on a pooled STA thread.
@@ -34,8 +37,8 @@ namespace Files.App.Storage
 		/// <param name="func">The work to execute in the STA thread.</param>
 		/// <param name="logger">A logger to capture any exception that occurs during execution.</param>
 		/// <returns>A <see cref="Task"/> that represents the work scheduled to execute in the STA thread.</returns>
-		public static Task<T> Run<T>(Func<T> func, ILogger? logger)
-			=> _pool.Value.Enqueue(func, logger);
+		public static Task<T> Run<T>(Func<CancellationToken, T> func, ILogger? logger, CancellationToken token)
+			=> _pool.Value.Enqueue(func, logger, token);
 
 		/// <summary>
 		/// Schedules the specified work to execute on a pooled STA thread.
@@ -43,8 +46,8 @@ namespace Files.App.Storage
 		/// <param name="func">The work to execute in the STA thread.</param>
 		/// <param name="logger">A logger to capture any exception that occurs during execution.</param>
 		/// <returns>A <see cref="Task"/> that represents the work scheduled to execute in the STA thread.</returns>
-		public static Task Run(Func<Task> func, ILogger? logger)
-			=> _pool.Value.EnqueueAsync(func, logger);
+		public static Task Run(Func<CancellationToken, Task> func, ILogger? logger, CancellationToken token)
+			=> _pool.Value.EnqueueAsync(func, logger, token);
 
 		/// <summary>
 		/// Schedules the specified work to execute on a pooled STA thread.
@@ -53,7 +56,7 @@ namespace Files.App.Storage
 		/// <param name="func">The work to execute in the STA thread.</param>
 		/// <param name="logger">A logger to capture any exception that occurs during execution.</param>
 		/// <returns>A <see cref="Task"/> that represents the work scheduled to execute in the STA thread.</returns>
-		public static Task<T?> Run<T>(Func<Task<T>> func, ILogger? logger)
-			=> _pool.Value.EnqueueAsync(func, logger);
+		public static Task<T?> Run<T>(Func<CancellationToken, Task<T>> func, ILogger? logger, CancellationToken token)
+			=> _pool.Value.EnqueueAsync(func, logger, token);
 	}
 }

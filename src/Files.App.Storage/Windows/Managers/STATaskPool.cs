@@ -18,6 +18,8 @@ namespace Files.App.Storage
 		private readonly Thread[] _workers;
 		private int _disposed;
 
+		private int _runningTaskCount = 0;
+
 		/// <summary>
 		/// Initializes a new pool with the specified number of STA worker threads.
 		/// </summary>
@@ -42,13 +44,21 @@ namespace Files.App.Storage
 			}
 		}
 
+		public void WaitForRunningTasksToComplete()
+		{
+			while (Volatile.Read(ref _runningTaskCount) > 0)
+			{
+				Thread.Sleep(10);
+			}
+		}
+
 		/// <summary>
 		/// Enqueues a synchronous <see cref="Action"/> for execution on an STA thread.
 		/// </summary>
-		public Task Enqueue(Action action, ILogger? logger)
+		public Task Enqueue(Action<CancellationToken> action, ILogger? logger, CancellationToken token)
 		{
 			ThrowIfDisposed();
-			var item = new SyncActionWorkItem(action, logger);
+			var item = new SyncActionWorkItem(action, logger, token);
 			_workQueue.Add(item);
 			return item.Task;
 		}
@@ -56,10 +66,10 @@ namespace Files.App.Storage
 		/// <summary>
 		/// Enqueues a synchronous <see cref="Func{T}"/> for execution on an STA thread.
 		/// </summary>
-		public Task<T> Enqueue<T>(Func<T> func, ILogger? logger)
+		public Task<T> Enqueue<T>(Func<CancellationToken, T> func, ILogger? logger, CancellationToken token)
 		{
 			ThrowIfDisposed();
-			var item = new SyncFuncWorkItem<T>(func, logger);
+			var item = new SyncFuncWorkItem<T>(func, logger, token);
 			_workQueue.Add(item);
 			return item.Task;
 		}
@@ -68,10 +78,10 @@ namespace Files.App.Storage
 		/// Enqueues an async delegate (<see cref="Func{Task}"/>) for execution on an STA thread.
 		/// The STA thread is freed after the synchronous portion (up to the first await) completes.
 		/// </summary>
-		public Task EnqueueAsync(Func<Task> func, ILogger? logger)
+		public Task EnqueueAsync(Func<CancellationToken, Task> func, ILogger? logger, CancellationToken token)
 		{
 			ThrowIfDisposed();
-			var item = new AsyncActionWorkItem(func, logger);
+			var item = new AsyncActionWorkItem(func, logger, token);
 			_workQueue.Add(item);
 			return item.Task;
 		}
@@ -80,10 +90,10 @@ namespace Files.App.Storage
 		/// Enqueues an async delegate (<see cref="Func{Task{T}}"/>) for execution on an STA thread.
 		/// The STA thread is freed after the synchronous portion (up to the first await) completes.
 		/// </summary>
-		public Task<T?> EnqueueAsync<T>(Func<Task<T>> func, ILogger? logger)
+		public Task<T?> EnqueueAsync<T>(Func<CancellationToken, Task<T>> func, ILogger? logger, CancellationToken token)
 		{
 			ThrowIfDisposed();
-			var item = new AsyncFuncWorkItem<T>(func, logger);
+			var item = new AsyncFuncWorkItem<T>(func, logger, token);
 			_workQueue.Add(item);
 			return item.Task;
 		}
@@ -98,7 +108,15 @@ namespace Files.App.Storage
 			{
 				foreach (var workItem in _workQueue.GetConsumingEnumerable())
 				{
-					workItem.Execute();
+					try
+					{
+						Interlocked.Increment(ref _runningTaskCount);
+						workItem.Execute();
+					}
+					finally
+					{
+						Interlocked.Decrement(ref _runningTaskCount);
+					}
 				}
 			}
 			finally

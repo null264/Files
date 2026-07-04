@@ -10,6 +10,13 @@ namespace Files.App.Storage
 	/// </summary>
 	internal abstract class WorkItemBase
 	{
+		public CancellationToken CancellationToken { get; }
+
+		protected WorkItemBase(CancellationToken cancellationToken = default)
+		{
+			CancellationToken = cancellationToken;
+		}
+
 		/// <summary>
 		/// Executes the work item on the STA thread.
 		/// </summary>
@@ -30,11 +37,11 @@ namespace Files.App.Storage
 	/// </summary>
 	internal sealed class SyncActionWorkItem : WorkItemBase
 	{
-		private readonly Action _action;
+		private readonly Action<CancellationToken> _action;
 		private readonly ILogger? _logger;
 		private readonly TaskCompletionSource _tcs;
 
-		public SyncActionWorkItem(Action action, ILogger? logger)
+		public SyncActionWorkItem(Action<CancellationToken> action, ILogger? logger, CancellationToken token = default) : base(token)
 		{
 			_action = action;
 			_logger = logger;
@@ -45,9 +52,14 @@ namespace Files.App.Storage
 
 		public override void Execute()
 		{
+			if(CancellationToken.IsCancellationRequested)
+			{
+				_tcs.TrySetCanceled();
+				return;
+			}
 			try
 			{
-				_action();
+				_action(CancellationToken);
 				_tcs.SetResult();
 			}
 			catch (Exception ex)
@@ -63,11 +75,11 @@ namespace Files.App.Storage
 	/// </summary>
 	internal sealed class SyncFuncWorkItem<T> : WorkItemBase
 	{
-		private readonly Func<T> _func;
+		private readonly Func<CancellationToken, T> _func;
 		private readonly ILogger? _logger;
 		private readonly TaskCompletionSource<T> _tcs;
 
-		public SyncFuncWorkItem(Func<T> func, ILogger? logger)
+		public SyncFuncWorkItem(Func<CancellationToken, T> func, ILogger? logger, CancellationToken token = default) : base(token)
 		{
 			_func = func;
 			_logger = logger;
@@ -78,9 +90,14 @@ namespace Files.App.Storage
 
 		public override void Execute()
 		{
+			if (CancellationToken.IsCancellationRequested)
+			{
+				_tcs.TrySetCanceled();
+				return;
+			}
 			try
 			{
-				_tcs.SetResult(_func());
+				_tcs.SetResult(_func(CancellationToken));
 			}
 			catch (Exception ex)
 			{
@@ -98,11 +115,11 @@ namespace Files.App.Storage
 	/// </summary>
 	internal sealed class AsyncActionWorkItem : WorkItemBase
 	{
-		private readonly Func<Task> _func;
+		private readonly Func<CancellationToken, Task> _func;
 		private readonly ILogger? _logger;
 		private readonly TaskCompletionSource _tcs;
 
-		public AsyncActionWorkItem(Func<Task> func, ILogger? logger)
+		public AsyncActionWorkItem(Func<CancellationToken, Task> func, ILogger? logger, CancellationToken token = default) : base(token)
 		{
 			_func = func;
 			_logger = logger;
@@ -113,9 +130,14 @@ namespace Files.App.Storage
 
 		public override void Execute()
 		{
+			if (CancellationToken.IsCancellationRequested)
+			{
+				_tcs.TrySetCanceled();
+				return;
+			}
 			try
 			{
-				var innerTask = _func();
+				var innerTask = _func(CancellationToken);
 
 				if (innerTask.IsCompleted)
 				{
@@ -164,11 +186,11 @@ namespace Files.App.Storage
 	/// </summary>
 	internal sealed class AsyncFuncWorkItem<T> : WorkItemBase
 	{
-		private readonly Func<Task<T>> _func;
+		private readonly Func<CancellationToken, Task<T>> _func;
 		private readonly ILogger? _logger;
 		private readonly TaskCompletionSource<T?> _tcs;
 
-		public AsyncFuncWorkItem(Func<Task<T>> func, ILogger? logger)
+		public AsyncFuncWorkItem(Func<CancellationToken, Task<T>> func, ILogger? logger, CancellationToken token = default) : base(token)
 		{
 			_func = func;
 			_logger = logger;
@@ -179,9 +201,14 @@ namespace Files.App.Storage
 
 		public override void Execute()
 		{
+			if (CancellationToken.IsCancellationRequested)
+			{
+				_tcs.TrySetCanceled();
+				return;
+			}
 			try
 			{
-				var innerTask = _func();
+				var innerTask = _func(CancellationToken);
 
 				if (innerTask.IsCompleted)
 				{

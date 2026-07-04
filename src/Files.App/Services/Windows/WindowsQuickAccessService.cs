@@ -63,20 +63,20 @@ namespace Files.App.Services
 						(folderPaths.Contains(path) ||
 						(path.StartsWith(@"\\SHELL\\") && folderPaths.Any(x => x.StartsWith(@"\\SHELL\\")))))
 					{
-						await STATask.Run(async () =>
+						await STATask.Run(async token =>
 						{
 							fi.InvokeVerb("unpinfromhome");
-						}, App.Logger);
+						}, App.Logger, App.WindowHideToken);
 						continue;
 					}
 				}
 
 				if (folderPaths.Contains(pathStr))
 				{
-					await STATask.Run(async () =>
+					await STATask.Run(async token =>
 					{
 						fi.InvokeVerb("unpinfromhome");
-					}, App.Logger);
+					}, App.Logger, App.WindowHideToken);
 				}
 			}
 

@@ -146,7 +146,8 @@ namespace Files.App.Helpers
 			string path,
 			int size,
 			bool isFolder,
-			IconOptions iconOptions)
+			IconOptions iconOptions,
+			CancellationToken token)
 		{
 			if (string.IsNullOrWhiteSpace(path))
 				return null;
@@ -158,6 +159,7 @@ namespace Files.App.Helpers
 				// Attempt to get file icon/thumbnail using IShellItemImageFactory GetImage
 				using var shellItem = SafetyExtensions.IgnoreExceptions(()
 					=> ShellFolderExtensions.GetShellItemFromPathOrPIDL(path));
+				token.ThrowIfCancellationRequested();
 
 				if (shellItem is not null && shellItem.IShellItem is Shell32.IShellItemImageFactory shellFactory)
 				{

@@ -25,7 +25,7 @@ namespace Files.App.Utils.Shell
 			return availability;
 		}
 
-		public static unsafe void OpenNetworkSharingSettings()
+		public static unsafe void OpenNetworkSharingSettings(CancellationToken token)
 		{
 			using ComPtr<IOpenControlPanel> controlPanel = default;
 			HRESULT hr = controlPanel.CoCreateInstance(CLSID.CLSID_OpenControlPanel, null, CLSCTX.CLSCTX_INPROC_SERVER);
