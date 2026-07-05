@@ -1,8 +1,9 @@
 // Copyright (c) Files Community
 // Licensed under the MIT License.
 
-using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Threading;
+using Microsoft.Extensions.Logging;
 using Windows.Win32;
 
 namespace Files.App.Storage
@@ -15,38 +16,87 @@ namespace Files.App.Storage
 	internal sealed class STATaskPool : IDisposable
 	{
 		private readonly BlockingCollection<WorkItemBase> _workQueue;
-		private readonly Thread[] _workers;
+		private readonly ConcurrentDictionary<int, StaThread> _workers;
 		private int _disposed;
 
-		private int _runningTaskCount = 0;
+		private AtomicCounter _runningTaskCount = 0;
+		private AtomicCounter _workerCount = 0;
+
+		public static int MinimumWorkerCount { get; set; } = 8;
+		public static int MaximumWorkerCount { get; set; } = 32;
+		public static int WorkerIdleTimeoutSeconds { get; set; } = 30;
 
 		/// <summary>
 		/// Initializes a new pool with the specified number of STA worker threads.
 		/// </summary>
-		/// <param name="workerCount">Number of STA threads to create. Clamped to [2, 8].</param>
-		public STATaskPool(int workerCount)
+		/// <param name="initialWorkerCount">Initial number of STA threads to create. Clamped to [<see cref="MinimumWorkerCount"/>, <see cref="MaximumWorkerCount"/>].</param>
+		public STATaskPool(int initialWorkerCount)
 		{
-			workerCount = Math.Clamp(workerCount, 2, 8);
+			initialWorkerCount = Math.Clamp(initialWorkerCount, MinimumWorkerCount, MaximumWorkerCount);
 
 			_workQueue = new BlockingCollection<WorkItemBase>(
 				new ConcurrentQueue<WorkItemBase>());
 
-			_workers = new Thread[workerCount];
-			for (int i = 0; i < workerCount; i++)
+			_workers = new();
+			for (int i = 0; i < initialWorkerCount; i++)
 			{
-				_workers[i] = new Thread(WorkerLoop)
+				CreateWorkerThread();
+			}
+		}
+
+		private StaThread CreateWorkerThread()
+		{
+			int id = Random.Shared.Next();
+			var thread = new Thread(WorkerLoop)
+			{
+				IsBackground = true,
+				Name = $"STA Worker"
+			};
+			var threadObj = new StaThread(id, thread);
+			_workers[id] = threadObj;
+			thread.SetApartmentState(ApartmentState.STA);
+			thread.Start(threadObj);
+			_workerCount++;
+
+			return threadObj;
+		}
+
+		private bool ShouldCreateNewWorker()
+		{
+			int runningTasks = _workQueue.Count;
+			int workerCount = _workerCount.Value;
+			// Create a new worker if all existing workers are busy and we haven't reached the maximum limit.
+			return runningTasks >= workerCount && workerCount < MaximumWorkerCount;
+		}
+
+		private void SpawnNewWorkerIfNeeded()
+		{
+			lock (this)
+			{
+				if (ShouldCreateNewWorker())
 				{
-					IsBackground = true,
-					Name = $"STATask-Worker-{i}"
-				};
-				_workers[i].SetApartmentState(ApartmentState.STA);
-				_workers[i].Start();
+					CreateWorkerThread();
+				}
+			}
+		}
+
+		private bool TryRegisterWorkerExit(StaThread staThread)
+		{
+			lock (this)
+			{
+				if (_workerCount.Value > MinimumWorkerCount)
+				{
+					_workerCount--;
+					_workers.TryRemove(staThread.Id, out _);
+					return true;
+				}
+				return false;
 			}
 		}
 
 		public void WaitForRunningTasksToComplete()
 		{
-			while (Volatile.Read(ref _runningTaskCount) > 0)
+			while (_runningTaskCount.Value > 0)
 			{
 				Thread.Sleep(10);
 			}
@@ -60,6 +110,7 @@ namespace Files.App.Storage
 			ThrowIfDisposed();
 			var item = new SyncActionWorkItem(action, logger, token);
 			_workQueue.Add(item);
+			SpawnNewWorkerIfNeeded();
 			return item.Task;
 		}
 
@@ -71,6 +122,7 @@ namespace Files.App.Storage
 			ThrowIfDisposed();
 			var item = new SyncFuncWorkItem<T>(func, logger, token);
 			_workQueue.Add(item);
+			SpawnNewWorkerIfNeeded();
 			return item.Task;
 		}
 
@@ -83,6 +135,7 @@ namespace Files.App.Storage
 			ThrowIfDisposed();
 			var item = new AsyncActionWorkItem(func, logger, token);
 			_workQueue.Add(item);
+			SpawnNewWorkerIfNeeded();
 			return item.Task;
 		}
 
@@ -95,33 +148,55 @@ namespace Files.App.Storage
 			ThrowIfDisposed();
 			var item = new AsyncFuncWorkItem<T>(func, logger, token);
 			_workQueue.Add(item);
+			SpawnNewWorkerIfNeeded();
 			return item.Task;
 		}
 
 		/// <summary>
 		/// The main loop executed by each STA worker thread.
 		/// </summary>
-		private void WorkerLoop()
+		private void WorkerLoop(object? arg)
 		{
+			if(arg is not StaThread staThread)
+				throw new ArgumentException("WorkerLoop must be called with a StaThread argument.", nameof(arg));
+			WorkItemBase? workItem;
+			int timeoutMs = (int)TimeSpan.FromSeconds(WorkerIdleTimeoutSeconds).TotalMilliseconds;
 			PInvoke.OleInitialize();
 			try
 			{
-				foreach (var workItem in _workQueue.GetConsumingEnumerable())
+				while (true)
 				{
-					try
+					if (_workQueue.TryTake(out workItem, timeoutMs))
 					{
-						Interlocked.Increment(ref _runningTaskCount);
-						workItem.Execute();
+						try
+						{
+							staThread.Status = StaThreadStatus.Running;
+							_runningTaskCount++;
+
+							workItem.Execute();
+
+							staThread.LastActivity = DateTimeOffset.UtcNow;
+						}
+						finally
+						{
+							_runningTaskCount--;
+							staThread.Status = StaThreadStatus.Idle;
+						}
 					}
-					finally
+					else
 					{
-						Interlocked.Decrement(ref _runningTaskCount);
+						if (TryRegisterWorkerExit(staThread))
+						{
+							return;
+						}
 					}
 				}
 			}
 			finally
 			{
 				PInvoke.OleUninitialize();
+				staThread.Status = StaThreadStatus.Disposed;
+				_workerCount--;
 			}
 		}
 
@@ -140,14 +215,70 @@ namespace Files.App.Storage
 
 			_workQueue.CompleteAdding();
 
-			foreach (var worker in _workers)
+			foreach (var worker in _workers.Values)
 			{
 				// Wait up to 3 seconds per thread to avoid hanging on shutdown
 				// if a thread is stuck in a long shell operation.
-				worker.Join(TimeSpan.FromSeconds(3));
+				worker.Thread.Join(TimeSpan.FromSeconds(3));
 			}
 
 			_workQueue.Dispose();
+		}
+
+		private class StaThread
+		{
+			public int Id { get; }
+			public Thread Thread { get; }
+			public StaThreadStatus Status { get; set; }
+			public DateTimeOffset LastActivity { get; set; }
+
+			public StaThread(int id, Thread thread)
+			{
+				Id = id;
+				Thread = thread;
+				Status = StaThreadStatus.Idle;
+				LastActivity = DateTimeOffset.UtcNow;
+			}
+		}
+
+		private enum StaThreadStatus
+		{
+			Idle,
+			Running,
+			Disposed
+		}
+	}
+
+	public class AtomicCounter
+	{
+		private int _value;
+		public AtomicCounter(int initialValue = 0)
+		{
+			_value = initialValue;
+		}
+		public int Increment()
+		{
+			return Interlocked.Increment(ref _value);
+		}
+		public int Decrement()
+		{
+			return Interlocked.Decrement(ref _value);
+		}
+		public int Value => Volatile.Read(ref _value);
+
+		public static implicit operator int(AtomicCounter counter) => counter.Value;
+		public static implicit operator AtomicCounter(int value) => new AtomicCounter(value);
+
+		public static AtomicCounter operator++(AtomicCounter counter)
+		{
+			counter.Increment();
+			return counter;
+		}
+
+		public static AtomicCounter operator --(AtomicCounter counter)
+		{
+			counter.Decrement();
+			return counter;
 		}
 	}
 }
