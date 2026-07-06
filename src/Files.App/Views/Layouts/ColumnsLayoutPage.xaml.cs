@@ -309,7 +309,7 @@ namespace Files.App.Views.Layouts
 				DismissOtherBlades(ColumnHost.ActiveBlades[ColumnHost.ActiveBlades.Count - 2]);
 			else
 			{
-				var workingDirectory = ((ColumnHost.ActiveBlades?.ToList().FirstOrDefault()?.Content as Frame)?.Content as ColumnShellPage)?.ShellViewModel.WorkingDirectory;
+				var workingDirectory = ((ColumnHost.ActiveBlades?.FirstOrDefault()?.Content as Frame)?.Content as ColumnShellPage)?.ShellViewModel.WorkingDirectory;
 				if (workingDirectory is null || string.Equals(workingDirectory, GetPathRoot(workingDirectory), StringComparison.OrdinalIgnoreCase))
 					ParentShellPageInstance?.NavigateHome();
 				else
@@ -393,8 +393,8 @@ namespace Files.App.Views.Layouts
 			}
 
 			var destPath = navArgs is not null ? navArgs.NavPathParam : navigationPath;
-			var columnPath = ((ColumnHost.ActiveBlades.ToList().LastOrDefault()?.Content as Frame)?.Content as ColumnShellPage)?.ShellViewModel.WorkingDirectory;
-			var columnFirstPath = ((ColumnHost.ActiveBlades.ToList().FirstOrDefault()?.Content as Frame)?.Content as ColumnShellPage)?.ShellViewModel.WorkingDirectory;
+			var columnPath = ((ColumnHost.ActiveBlades.LastOrDefault()?.Content as Frame)?.Content as ColumnShellPage)?.ShellViewModel.WorkingDirectory;
+			var columnFirstPath = ((ColumnHost.ActiveBlades.FirstOrDefault()?.Content as Frame)?.Content as ColumnShellPage)?.ShellViewModel.WorkingDirectory;
 
 			if (string.IsNullOrEmpty(destPath) || string.IsNullOrEmpty(columnPath) || string.IsNullOrEmpty(columnFirstPath))
 			{
@@ -502,7 +502,7 @@ namespace Files.App.Views.Layouts
 			if (relativeIndex is -1)
 			{
 				// Get the index of the blade with the same path as the requested
-				var blade = ColumnHost.ActiveBlades.ToList().FirstOrDefault(b =>
+				var blade = ColumnHost.ActiveBlades.FirstOrDefault(b =>
 					column.NavPathParam.Equals(((b.Content as Frame)?.Content as ColumnShellPage)?.ShellViewModel?.WorkingDirectory));
 
 				if (blade is not null)

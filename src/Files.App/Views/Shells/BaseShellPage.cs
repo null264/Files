@@ -648,7 +648,7 @@ namespace Files.App.Views.Shells
 						if (folderToSelect.EndsWith(separator))
 							folderToSelect = folderToSelect.Remove(folderToSelect.Length - 1, 1);
 
-						var itemToSelect = ShellViewModel.FilesAndFolders.ToList().FirstOrDefault((item) => item.ItemPath == folderToSelect);
+						var itemToSelect = ShellViewModel.FilesAndFolders.FirstOrDefault((item) => item.ItemPath == folderToSelect);
 
 						if (itemToSelect is not null && ContentPage is not null && userSettingsService.FoldersSettingsService.ScrollToPreviousFolderWhenNavigatingUp)
 						{

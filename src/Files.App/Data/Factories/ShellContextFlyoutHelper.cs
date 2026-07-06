@@ -295,11 +295,11 @@ namespace Files.App.Helpers
 					showOpenMenu: false,
 					default);
 
-				var openWithItem = showOpenWithMenu ? shellMenuItems.Where(x => (x.Tag as Win32ContextMenuItem)?.CommandString == "openas").ToList().FirstOrDefault() : null;
+				var openWithItem = showOpenWithMenu ? shellMenuItems.Where(x => (x.Tag as Win32ContextMenuItem)?.CommandString == "openas").FirstOrDefault() : null;
 				if (openWithItem is not null)
 					shellMenuItems.Remove(openWithItem);
 
-				var sendToItem = shellMenuItems.Where(x => (x.Tag as Win32ContextMenuItem)?.CommandString == "sendto").ToList().FirstOrDefault();
+				var sendToItem = shellMenuItems.Where(x => (x.Tag as Win32ContextMenuItem)?.CommandString == "sendto").FirstOrDefault();
 				if (sendToItem is not null &&
 					(showSendToMenu || !UserSettingsService.GeneralSettingsService.ShowSendToMenu))
 					shellMenuItems.Remove(sendToItem);

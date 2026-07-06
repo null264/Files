@@ -1391,7 +1391,7 @@ namespace Files.App.ViewModels
 					BaseStorageFile? matchingStorageFile = null;
 					if (item.Key is not null && FilesAndFolders.IsGrouped && FilesAndFolders.GetExtendedGroupHeaderInfo is not null)
 					{
-						gp = FilesAndFolders.GroupedCollection?.ToList().FirstOrDefault(x => x.Model.Key == item.Key);
+						gp = FilesAndFolders.GroupedCollection?.FirstOrDefault(x => x.Model.Key == item.Key);
 						loadGroupHeaderInfo = gp is not null && !gp.Model.Initialized && gp.GetExtendedGroupHeaderInfo is not null;
 					}
 
@@ -2667,7 +2667,7 @@ namespace Files.App.ViewModels
 										// sorted slot after a rename (issue #4214). Leaving anyEdits false skips
 										// OrderFilesAndFoldersAsync; PropertyChanged keeps the visible name in sync.
 										if (operationQueue.TryPeek(out var nextOp) && nextOp.Action == FILE_ACTION_RENAMED_NEW_NAME &&
-											filesAndFolders.ToList().FirstOrDefault(x => x.ItemPath.Equals(operation.FileName, StringComparison.OrdinalIgnoreCase)) is { } renamed)
+											filesAndFolders.FirstOrDefault(x => x.ItemPath.Equals(operation.FileName, StringComparison.OrdinalIgnoreCase)) is { } renamed)
 										{
 											operationQueue.TryDequeue(out _);
 											var newPath = nextOp.FileName;
@@ -2844,7 +2844,7 @@ namespace Files.App.ViewModels
 		{
 			foreach (var path in paths)
 			{
-				var item = filesAndFolders.ToList().FirstOrDefault(x => x.ItemPath.Equals(path, StringComparison.OrdinalIgnoreCase));
+				var item = filesAndFolders.FirstOrDefault(x => x.ItemPath.Equals(path, StringComparison.OrdinalIgnoreCase));
 				if (item is not null && item.NeedsDelayedThumbnailLoad)
 				{
 					App.Logger.LogInformation("FILE_ACTION_MODIFIED thumbnail retry triggered [{Id}] '{Extension}'.", path.GetHashCode(), Path.GetExtension(path));
@@ -2928,7 +2928,7 @@ namespace Files.App.ViewModels
 
 			try
 			{
-				var matchingItem = filesAndFolders.ToList().FirstOrDefault(x => x.ItemPath.Equals(path, StringComparison.OrdinalIgnoreCase));
+				var matchingItem = filesAndFolders.FirstOrDefault(x => x.ItemPath.Equals(path, StringComparison.OrdinalIgnoreCase));
 
 				if (matchingItem is not null)
 				{
