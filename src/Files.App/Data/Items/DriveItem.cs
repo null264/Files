@@ -358,12 +358,19 @@ namespace Files.App.Data.Items
 		{
 			if (!string.IsNullOrEmpty(DeviceID) && !string.Equals(DeviceID, "network-folder"))
 			{
-				var result = await FileThumbnailHelper.GetIconAsync(
+				byte[]? result = null;
+				try
+				{
+					result = await FileThumbnailHelper.GetIconAsync(
 					DeviceID,
 					Constants.ShellIconSizes.Small,
 					false,
 					IconOptions.ReturnIconOnly | IconOptions.UseCurrentScale);
-
+				}
+				catch(TaskTimeLimitExceededException)
+				{
+					Debug.WriteLine($"Failed to load icon for {DeviceID}, reason: timed out");
+				}
 				IconData ??= result;
 			}
 
@@ -373,7 +380,8 @@ namespace Files.App.Data.Items
 				IconData ??= thumbnail is not null ? await thumbnail.ToByteArrayAsync() : null;
 			}
 
-			if (string.Equals(DeviceID, "network-folder"))
+
+			if (string.Equals(DeviceID, "network-folder") || Type == DriveType.Network)
 				IconData ??= UIHelpers.GetSidebarIconResourceInfo(Constants.ImageRes.Network)?.IconData;
 
 			IconData ??= UIHelpers.GetSidebarIconResourceInfo(Constants.ImageRes.Folder)?.IconData;
