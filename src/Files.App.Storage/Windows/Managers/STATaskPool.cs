@@ -3,6 +3,7 @@
 
 using System.Collections.Concurrent;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Windows.Win32;
 
@@ -25,6 +26,7 @@ namespace Files.App.Storage
 		public static int MinimumWorkerCount { get; set; } = 8;
 		public static int MaximumWorkerCount { get; set; } = 32;
 		public static int WorkerIdleTimeoutSeconds { get; set; } = 30;
+		public static int WorkerExecuteTimeoutSeconds { get; set; } = 60;
 
 		/// <summary>
 		/// Initializes a new pool with the specified number of STA worker threads.
@@ -111,7 +113,7 @@ namespace Files.App.Storage
 			var item = new SyncActionWorkItem(action, logger, token);
 			_workQueue.Add(item);
 			SpawnNewWorkerIfNeeded();
-			return item.Task;
+			return CreateWaitTaskWithTimeout(item.Task);
 		}
 
 		/// <summary>
@@ -123,7 +125,7 @@ namespace Files.App.Storage
 			var item = new SyncFuncWorkItem<T>(func, logger, token);
 			_workQueue.Add(item);
 			SpawnNewWorkerIfNeeded();
-			return item.Task;
+			return CreateWaitTaskWithTimeout(item.Task);
 		}
 
 		/// <summary>
@@ -136,7 +138,7 @@ namespace Files.App.Storage
 			var item = new AsyncActionWorkItem(func, logger, token);
 			_workQueue.Add(item);
 			SpawnNewWorkerIfNeeded();
-			return item.Task;
+			return CreateWaitTaskWithTimeout(item.Task);
 		}
 
 		/// <summary>
@@ -149,7 +151,31 @@ namespace Files.App.Storage
 			var item = new AsyncFuncWorkItem<T>(func, logger, token);
 			_workQueue.Add(item);
 			SpawnNewWorkerIfNeeded();
-			return item.Task;
+			return CreateWaitTaskWithTimeout(item.Task);
+		}
+
+		private async Task CreateWaitTaskWithTimeout(Task task)
+		{
+			try
+			{
+				await task.WaitAsync(TimeSpan.FromSeconds(WorkerExecuteTimeoutSeconds));
+			}
+			catch (OperationCanceledException)
+			{
+				throw new TaskTimeLimitExceededException("A background STA task is timed out");
+			}
+		}
+
+		private async Task<T> CreateWaitTaskWithTimeout<T>(Task<T> task)
+		{
+			try
+			{
+				return await task.WaitAsync(TimeSpan.FromSeconds(WorkerExecuteTimeoutSeconds));
+			}
+			catch (TimeoutException)
+			{
+				throw new TaskTimeLimitExceededException("A background STA task is timed out");
+			}
 		}
 
 		/// <summary>
@@ -157,7 +183,7 @@ namespace Files.App.Storage
 		/// </summary>
 		private void WorkerLoop(object? arg)
 		{
-			if(arg is not StaThread staThread)
+			if (arg is not StaThread staThread)
 				throw new ArgumentException("WorkerLoop must be called with a StaThread argument.", nameof(arg));
 			WorkItemBase? workItem;
 			int timeoutMs = (int)TimeSpan.FromSeconds(WorkerIdleTimeoutSeconds).TotalMilliseconds;
@@ -269,7 +295,7 @@ namespace Files.App.Storage
 		public static implicit operator int(AtomicCounter counter) => counter.Value;
 		public static implicit operator AtomicCounter(int value) => new AtomicCounter(value);
 
-		public static AtomicCounter operator++(AtomicCounter counter)
+		public static AtomicCounter operator ++(AtomicCounter counter)
 		{
 			counter.Increment();
 			return counter;
@@ -279,6 +305,14 @@ namespace Files.App.Storage
 		{
 			counter.Decrement();
 			return counter;
+		}
+	}
+
+	public class TaskTimeLimitExceededException : TaskCanceledException
+	{
+		public TaskTimeLimitExceededException(string message) : base(message)
+		{
+			Debug.WriteLine("A STA task timed out, notifying the caller");
 		}
 	}
 }
