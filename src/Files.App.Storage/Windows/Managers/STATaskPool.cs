@@ -23,7 +23,7 @@ namespace Files.App.Storage
 		private AtomicCounter _runningTaskCount = 0;
 		private AtomicCounter _workerCount = 0;
 
-		public static int MinimumWorkerCount { get; set; } = 8;
+		public static int MinimumWorkerCount { get; set; } = 0;
 		public static int MaximumWorkerCount { get; set; } = 32;
 		public static int WorkerIdleTimeoutSeconds { get; set; } = 30;
 		public static int WorkerExecuteTimeoutSeconds { get; set; } = 60;
@@ -222,7 +222,6 @@ namespace Files.App.Storage
 			{
 				PInvoke.OleUninitialize();
 				staThread.Status = StaThreadStatus.Disposed;
-				_workerCount--;
 			}
 		}
 
