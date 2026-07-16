@@ -532,7 +532,7 @@ namespace Files.App.Utils.Storage
 				cts.Cancel();
 
 				return (await moveTcs.Task, shellOperationResult);
-			}, App.Logger, App.WindowHideToken);
+			}, App.Logger, App.WindowHideToken, Timeout.Infinite);
 		}
 
 		public static Task<(bool, ShellOperationResult)> CopyItemAsync(string[] fileToCopyPath, string[] copyDestination, bool overwriteOnCopy, long ownerHwnd, bool asAdmin, IProgress<StatusCenterItemProgressModel> progress, string operationID = "")
@@ -671,7 +671,7 @@ namespace Files.App.Utils.Storage
 				cts.Cancel();
 
 				return (await copyTcs.Task, shellOperationResult);
-			}, App.Logger, App.WindowHideToken);
+			}, App.Logger, App.WindowHideToken, Timeout.Infinite);
 		}
 
 		public static void TryCancelOperation(string operationId)
@@ -815,7 +815,7 @@ namespace Files.App.Utils.Storage
 				filePath = filePath.Replace("'", "''");
 				iconFile = iconFile.Replace("'", "''");
 
-				if(ext == ".url")
+				if (ext == ".url")
 				{
 					psScript = $@"
 						$path = '{filePath}'
@@ -899,10 +899,10 @@ namespace Files.App.Utils.Storage
 
 			int index = 0;
 			int insertedIndex = 0;
-			foreach(var line in lines)
+			foreach (var line in lines)
 			{
 				var isInternetShortcutHeader = line.Trim().Equals("[InternetShortcut]", StringComparison.OrdinalIgnoreCase);
-				if(isInternetShortcutHeader)
+				if (isInternetShortcutHeader)
 				{
 					insertedIndex = index + 1;
 					break;
