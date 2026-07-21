@@ -150,7 +150,7 @@ namespace Files.App.Utils.Storage
 				return new BaseBasicProperties();
 			}
 			//zipFile.IsStreamOwner = true;
-			var entry = zipFile.ArchiveFileData.FirstOrDefault(x => System.IO.Path.Combine(containerPath, x.FileName) == Path);
+			var entry = zipFile.GetArchiveFileData(containerPath).FirstOrDefault(x => System.IO.Path.Combine(containerPath, x.FileName) == Path);
 			return entry.FileName is null
 				? new BaseBasicProperties()
 				: new ZipFolderBasicProperties(entry);
@@ -181,7 +181,7 @@ namespace Files.App.Utils.Storage
 
 				var filePath = System.IO.Path.Combine(Path, name);
 
-				var entry = zipFile.ArchiveFileData.FirstOrDefault(x => System.IO.Path.Combine(containerPath, x.FileName) == filePath);
+				var entry = zipFile.GetArchiveFileData(containerPath).FirstOrDefault(x => System.IO.Path.Combine(containerPath, x.FileName) == filePath);
 				if (entry.FileName is null)
 				{
 					return null;
@@ -225,7 +225,7 @@ namespace Files.App.Utils.Storage
 				}
 				//zipFile.IsStreamOwner = true;
 				var items = new List<IStorageItem>();
-				foreach (var entry in zipFile.ArchiveFileData) // Returns all items recursively
+				foreach (var entry in zipFile.GetArchiveFileData(containerPath)) // Returns all items recursively
 				{
 					string winPath = System.IO.Path.Combine(System.IO.Path.GetFullPath(containerPath), entry.FileName);
 					if (winPath.StartsWith(Path.WithEnding("\\"), StringComparison.Ordinal)) // Child of self
@@ -563,6 +563,19 @@ namespace Files.App.Utils.Storage
 			return true;
 		}
 
+		public async Task<bool> ValidateCredentialsAsync()
+		{
+			try
+			{
+				using SevenZipExtractor zipFile = await OpenZipFileAsync();
+				return zipFile?.ArchiveFileData is not null;
+			}
+			catch (Exception) // SevenZipOpenFailedException(WrongPassword) for bad credentials; IO exceptions (e.g. archive deleted meanwhile) equally mean the credentials can't be verified
+			{
+				return false;
+			}
+		}
+
 		private IAsyncOperation<SevenZipExtractor> OpenZipFileAsync()
 		{
 			return AsyncInfo.Run<SevenZipExtractor>(async (cancellationToken) =>
@@ -602,7 +615,7 @@ namespace Files.App.Utils.Storage
 					return null;
 				}
 				//zipFile.IsStreamOwner = true;
-				return zipFile.ArchiveFileData.Where(x => System.IO.Path.Combine(containerPath, x.FileName).IsSubPathOf(Path)).Select(e => (e.Index, e.FileName));
+				return zipFile.GetArchiveFileData(containerPath).Where(x => System.IO.Path.Combine(containerPath, x.FileName).IsSubPathOf(Path)).Select(e => (e.Index, e.FileName));
 			}
 		}
 
