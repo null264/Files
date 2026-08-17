@@ -67,6 +67,7 @@ namespace Files.App.Views
 			_updateDateDisplayTimer = DispatcherQueue.CreateTimer();
 			_updateDateDisplayTimer.Interval = TimeSpan.FromSeconds(1);
 			_updateDateDisplayTimer.Tick += UpdateDateDisplayTimer_Tick;
+			App.AppModel.PropertyChanged += AppModel_PropertyChanged;
 
 			ApplySidebarWidthState();
 		}
@@ -215,7 +216,7 @@ namespace Files.App.Views
 
 		private void PaneHolder_PropertyChanged(object? sender, PropertyChangedEventArgs e)
 		{
-			SidebarAdaptiveViewModel.NotifyInstanceRelatedPropertiesChanged(SidebarAdaptiveViewModel.PaneHolder.ActivePane?.TabBarItemParameter?.NavigationParameter?.ToString());
+			SidebarAdaptiveViewModel.NotifyInstanceRelatedPropertiesChanged(SidebarAdaptiveViewModel.PaneHolder?.ActivePane?.TabBarItemParameter?.NavigationParameter?.ToString());
 			UpdateNavToolbarProperties();
 			LoadPaneChanged();
 		}
@@ -228,11 +229,13 @@ namespace Files.App.Views
 
 		private void UpdateNavToolbarProperties()
 		{
+			var toolbarViewModel = SidebarAdaptiveViewModel.PaneHolder?.ActivePaneOrColumn!.ToolbarViewModel;
+
 			if (NavToolbar is not null)
-				NavToolbar.ViewModel = SidebarAdaptiveViewModel.PaneHolder?.ActivePaneOrColumn.ToolbarViewModel;
+				NavToolbar.ViewModel = toolbarViewModel;
 
 			if (InnerNavigationToolbar is not null)
-				InnerNavigationToolbar.ViewModel = SidebarAdaptiveViewModel.PaneHolder?.ActivePaneOrColumn.ToolbarViewModel;
+				InnerNavigationToolbar.ViewModel = toolbarViewModel;
 		}
 
 		protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -348,6 +351,18 @@ namespace Files.App.Views
 				InfoPane?.ViewModel.UpdateDateDisplay();
 			else
 				App.Logger.LogWarning("UpdateDateDisplayTimer_Tick: Timer firing after window closed!");
+		}
+
+		private void AppModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+		{
+			if (e.PropertyName != nameof(AppModel.IsMainWindowClosed))
+				return;
+
+			// Ticks dispatched during dispatcher queue shutdown crash in CoreMessaging
+			if (App.AppModel.IsMainWindowClosed)
+				_updateDateDisplayTimer.Stop();
+			else if (InfoPane is not null && InfoPane.IsLoaded)
+				_updateDateDisplayTimer.Start();
 		}
 
 		private void Page_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -540,7 +555,7 @@ namespace Files.App.Views
 		{
 			// Workaround for issue where clicking an empty area in the window (toolbar, title bar etc) prevents keyboard
 			// shortcuts from working properly, see https://github.com/microsoft/microsoft-ui-xaml/issues/6467
-			DispatcherQueue.TryEnqueue(() => ContentPageContext.ShellPage?.PaneHolder.FocusActivePane());
+			DispatcherQueue.TryEnqueue(() => ContentPageContext.ShellPage?.PaneHolder?.FocusActivePane());
 		}
 
 		private void SidebarControl_ItemContextInvoked(object sender, ItemContextInvokedArgs e)

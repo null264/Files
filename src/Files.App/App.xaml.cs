@@ -56,9 +56,10 @@ namespace Files.App
 			InitializeComponent();
 
 			// Configure exception handlers
-			UnhandledException += (sender, e) => AppLifecycleHelper.HandleAppUnhandledException(e.Exception, true);
-			AppDomain.CurrentDomain.UnhandledException += (sender, e) => AppLifecycleHelper.HandleAppUnhandledException(e.ExceptionObject as Exception, false);
-			TaskScheduler.UnobservedTaskException += (sender, e) => AppLifecycleHelper.HandleAppUnhandledException(e.Exception, false);
+			AppLifecycleHelper.RecordFirstChanceExceptions();
+			UnhandledException += (sender, e) => AppLifecycleHelper.HandleAppUnhandledException(e.Exception, true, "Application.UnhandledException", e.Message);
+			AppDomain.CurrentDomain.UnhandledException += (sender, e) => AppLifecycleHelper.HandleAppUnhandledException(e.ExceptionObject as Exception, false, "AppDomain.UnhandledException");
+			TaskScheduler.UnobservedTaskException += (sender, e) => AppLifecycleHelper.HandleAppUnhandledException(e.Exception, false, "TaskScheduler.UnobservedTaskException");
 		}
 
 		/// <summary>
@@ -179,7 +180,7 @@ namespace Files.App
 		/// </summary>
 		private void Window_Activated(object sender, WindowActivatedEventArgs args)
 		{
-			Logger.LogInformation($"Window_Activated: State={args?.WindowActivationState.ToString()}");
+			Logger.LogInformation($"Window_Activated: State={args.WindowActivationState}");
 
 			if (args.WindowActivationState != WindowActivationState.Deactivated)
 				AppModel.IsMainWindowClosed = false;
@@ -224,7 +225,8 @@ namespace Files.App
 
 			if (OutputPath is not null)
 			{
-				var instance = MainPageViewModel.AppInstances.FirstOrDefault(x => x.TabItemContent.IsCurrentInstance);
+				var instance = MainPageViewModel.AppInstances.FirstOrDefault(x =>
+					(x.TabItemContent ?? throw new InvalidOperationException("A tab does not have content.")).IsCurrentInstance);
 				if (instance is null)
 					return;
 
@@ -232,7 +234,7 @@ namespace Files.App
 				if (items is null)
 					return;
 
-				var results = items.Select(x => x.ItemPath).ToList();
+				var results = items.Select(x => x.ItemPath!).ToList();
 				System.IO.File.WriteAllLines(OutputPath, results);
 
 				using var eventHandle = PInvoke.CreateEvent(null, false, false, "FILEDIALOG");
