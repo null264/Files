@@ -3,8 +3,6 @@
 
 using System.IO;
 using System.Runtime.InteropServices;
-using Vanara.PInvoke;
-using Vanara.Windows.Shell;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.UI.Shell;
@@ -32,7 +30,7 @@ namespace Files.App.Helpers
 				{
 					using var shellFolder = ShellFolderExtensions.GetShellItemFromPathOrPIDL(path) as ShellFolder;
 					token.ThrowIfCancellationRequested();
-					using ShellFolder _controlPanel = new(Shell32.KNOWNFOLDERID.FOLDERID_ControlPanelFolder);
+					using ShellFolder _controlPanel = new(PInvoke.FOLDERID_ControlPanelFolder);
 					using ShellFolder _controlPanelCategoryView = new("::{26EE0668-A00A-44D7-9371-BEB064C98683}");
 
 					if (shellFolder is null ||
@@ -54,7 +52,7 @@ namespace Files.App.Helpers
 						{
 							try
 							{
-								var shellFileItem = folderItem is ShellLink link ?
+								var shellFileItem = folderItem is Files.App.Utils.Shell.ShellLink link ?
 									ShellFolderExtensions.GetShellLinkItem(link) :
 									ShellFolderExtensions.GetShellFileItem(folderItem);
 								if (shellFileItem is null)

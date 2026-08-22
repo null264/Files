@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.Storage;
+using WinRT;
 using IO = System.IO;
 
 namespace Files.App
@@ -22,7 +23,7 @@ namespace Files.App
 
 		public nint WindowHandle { get; }
 		private bool CanWindowToFront { get; set; } = true;
-		private readonly object _canWindowToFrontLock = new();
+		private readonly Lock _canWindowToFrontLock = new();
 
 		public MainWindow()
 		{
@@ -38,7 +39,10 @@ namespace Files.App
 			AppWindow.TitleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
 			AppWindow.TitleBar.ButtonPressedBackgroundColor = Colors.Transparent;
 			AppWindow.TitleBar.ButtonHoverBackgroundColor = Colors.Transparent;
-			AppWindow.SetIcon(AppLifecycleHelper.AppIconPath);
+
+			// Deferred: reads the .ico from disk
+			DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+				AppWindow.SetIcon(AppLifecycleHelper.AppIconPath));
 
 			WinUIEx.WindowManager.Get(this).WindowMessageReceived += WindowManager_WindowMessageReceived;
 		}
@@ -237,6 +241,7 @@ namespace Files.App
 			}
 		}
 
+		[DynamicWindowsRuntimeCast(typeof(Frame))]
 		private Frame? EnsureWindowIsInitialized()
 		{
 			try
@@ -348,7 +353,7 @@ namespace Files.App
 								var tagUid = tag is not null ? new[] { tag.Uid } : [];
 								var dbInstance = FileTagsHelper.GetDbInstance();
 								dbInstance.SetTags(file, fileFRN, tagUid);
-								FileTagsHelper.WriteFileTag(file, tagUid);
+								await FileTagsHelper.WriteFileTagAsync(file, tagUid);
 							}
 						}
 						break;
@@ -397,6 +402,12 @@ namespace Files.App
 			if ((!CanWindowToFront) && e.Message.MessageId == Windows.Win32.PInvoke.WM_WINDOWPOSCHANGING)
 			{
 				Win32Helper.ForceWindowPosition(e.Message.LParam);
+				e.Handled = true;
+			}
+			else if (e.Message.MessageId == Windows.Win32.PInvoke.WM_MENUCHAR &&
+				(e.Message.WParam & 0xFFFF) == '\r')
+			{
+				e.Result = Win32PInvoke.MNC_CLOSE << 16;
 				e.Handled = true;
 			}
 		}

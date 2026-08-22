@@ -18,6 +18,7 @@ using Windows.Storage;
 using Windows.System;
 using Windows.UI.Core;
 using Windows.UI.ViewManagement;
+using WinRT;
 
 namespace Files.App.ViewModels.UserControls
 {
@@ -769,6 +770,7 @@ namespace Files.App.ViewModels.UserControls
 			};
 		}
 
+		[DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
 		public async void HandleItemContextInvokedAsync(object sender, ItemContextInvokedArgs args)
 		{
 			if (sender is not FrameworkElement sidebarItem)
@@ -1441,7 +1443,7 @@ namespace Files.App.ViewModels.UserControls
 					filesTags = [.. filesTags, fileTag.Uid];
 					var fileFRN = await FileTagsHelper.GetFileFRN(item.Item);
 					dbInstance.SetTags(path, fileFRN, filesTags);
-					FileTagsHelper.WriteFileTag(path, filesTags);
+					await FileTagsHelper.WriteFileTagAsync(path, filesTags);
 					pathToTags[path] = filesTags;
 				}
 			}

@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Windows.Foundation;
+using WinRT;
 
 namespace Files.App.Helpers.ContextFlyouts
 {
@@ -27,7 +28,6 @@ namespace Files.App.Helpers.ContextFlyouts
 		private bool openedUp;
 		private bool placementResolved;
 		private double estimatedWidth;
-		private double referenceScreenY = double.NaN;
 		private FrameworkElement? invocationAnchor;
 		private Point? invocationPosition;
 
@@ -48,6 +48,7 @@ namespace Files.App.Helpers.ContextFlyouts
 		{
 			Flyout.Opening += (sender, e) => App.LastOpenedFlyout = Flyout;
 			Flyout.Opened += Flyout_Opened;
+			Flyout.Closed += Flyout_Closed;
 		}
 
 		/// <summary>
@@ -61,7 +62,6 @@ namespace Files.App.Helpers.ContextFlyouts
 			primaryModels = null;
 			openedUp = false;
 			placementResolved = false;
-			referenceScreenY = double.NaN;
 			invocationAnchor = null;
 			invocationPosition = null;
 		}
@@ -103,6 +103,7 @@ namespace Files.App.Helpers.ContextFlyouts
 		/// <summary>
 		/// Appends a separator unless the menu is empty or already ends with one; returns the added separator.
 		/// </summary>
+		[DynamicWindowsRuntimeCast(typeof(MenuFlyoutSeparator))]
 		public MenuFlyoutSeparator? AddSeparatorIfNeeded()
 		{
 			if (Flyout.Items.Count == 0 || Flyout.Items[^1] is MenuFlyoutSeparator)
@@ -118,6 +119,7 @@ namespace Files.App.Helpers.ContextFlyouts
 		/// async shell fetch so filling it later never resizes the main menu; drop it via
 		/// <see cref="RemoveIfEmpty"/> when the shell turns out to have nothing to offer.
 		/// </summary>
+		[DynamicWindowsRuntimeCast(typeof(Style))]
 		private (MenuFlyoutSubItem SubMenu, MenuFlyoutSeparator? Separator) AddShowMoreOptionsSubMenu()
 		{
 			var separator = AddSeparatorIfNeeded();
@@ -224,6 +226,7 @@ namespace Files.App.Helpers.ContextFlyouts
 		/// first 6 inline while shift is held, the rest inside "Show more options" - above its built-in commands
 		/// when <paramref name="aboveExisting"/> is set, appended otherwise.
 		/// </summary>
+		[DynamicWindowsRuntimeCast(typeof(MenuFlyoutSeparator))]
 		public void AddShellModels(List<ContextMenuFlyoutItemViewModel> models, bool shiftPressed, MenuFlyoutSubItem? overflowSubMenu, MenuFlyoutSeparator? overflowSeparator, bool aboveExisting = true)
 		{
 			List<ContextMenuFlyoutItemViewModel> mainModels = overflowSubMenu is null
@@ -290,6 +293,7 @@ namespace Files.App.Helpers.ContextFlyouts
 		/// Collapses a leaf item and shows its submenu counterpart (both looked up by Tag), styling the submenu
 		/// with the shared themed-icon template. Returns null unless both elements exist.
 		/// </summary>
+		[DynamicWindowsRuntimeCast(typeof(MenuFlyoutSubItem))]
 		public (MenuFlyoutItemBase Leaf, MenuFlyoutSubItem SubMenu)? SwapLeafForSubMenu(string leafTag, string subMenuTag, string? text, string? themedIconStyleKey)
 		{
 			if (FindByTag(leafTag) is not { } leaf || FindByTag(subMenuTag) is not MenuFlyoutSubItem subMenu)
@@ -308,6 +312,7 @@ namespace Files.App.Helpers.ContextFlyouts
 		/// Applies the shared themed-icon submenu template; an empty icon slot is reserved when no icon style is
 		/// given so the item's metrics match the others.
 		/// </summary>
+		[DynamicWindowsRuntimeCast(typeof(Style))]
 		private static void ApplyThemedSubMenuStyle(MenuFlyoutSubItem subMenu, string? themedIconStyleKey)
 		{
 			subMenu.Style = App.Current.Resources["MenuFlyoutSubItemWithThemedIconStyle"] as Style;
@@ -464,6 +469,7 @@ namespace Files.App.Helpers.ContextFlyouts
 		/// position. Doing this BEFORE the menu is shown keeps item heights stable when the shell items land; the
 		/// async loader then only fills the submenu contents. Returns the existing submenu when already converted.
 		/// </summary>
+		[DynamicWindowsRuntimeCast(typeof(MenuFlyoutSubItem))]
 		public MenuFlyoutSubItem? ConvertPlaceholderToSubMenu(string tag, string text, string? themedIconStyleKey)
 		{
 			if (FindByTag(tag) is not { } placeholder)
@@ -483,6 +489,8 @@ namespace Files.App.Helpers.ContextFlyouts
 			return subMenu;
 		}
 
+		[DynamicWindowsRuntimeCast(typeof(MenuFlyoutPresenter))]
+		[DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
 		private void Flyout_Opened(object? sender, object e)
 		{
 			try
@@ -494,16 +502,19 @@ namespace Files.App.Helpers.ContextFlyouts
 				MenuFlyoutPresenter? presenter = null;
 				foreach (var openPopup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(Flyout.XamlRoot))
 				{
-					presenter = openPopup.Child as MenuFlyoutPresenter ?? openPopup.Child?.FindDescendant<MenuFlyoutPresenter>();
-					if (presenter is not null)
+					var candidate = openPopup.Child as MenuFlyoutPresenter ?? openPopup.Child?.FindDescendant<MenuFlyoutPresenter>();
+
+					// Several menu popups can be open at once (a submenu, another pane's leftover menu); ours is
+					// the one presenting this flyout's items
+					if (candidate is not null && candidate.Items.Count > 0 && Flyout.Items.Count > 0 && ReferenceEquals(candidate.Items[0], Flyout.Items[0]))
 					{
+						presenter = candidate;
 						popup = openPopup;
 						break;
 					}
 				}
 				if (presenter is null || popup is null)
 					return;
-
 
 				// Measure the shared accelerator-text column in the open frame; otherwise the menu visibly
 				// widens a beat after it appears.
@@ -518,28 +529,38 @@ namespace Files.App.Helpers.ContextFlyouts
 				if (presenter.XamlRoot.Content is FrameworkElement rootContent && rootContent.ActualHeight > 0)
 					presenter.MaxHeight = rootContent.ActualHeight - 24;
 
-				var scale = Flyout.XamlRoot.RasterizationScale;
-
-				// Pull the touch/pointer point captured after the pre-render guess and recompute the reference; the
-				// cursor is stale for touch. Direct-position callers (widget/sidebar) leave the provider null.
-				if (InvocationPointProvider?.Invoke() is { } invocation && Flyout.XamlRoot.Content is FrameworkElement openedContent)
+				// Pull the touch/pointer point captured after the pre-render guess; the cursor is stale for touch.
+				// Direct-position callers (widget/sidebar) leave the provider null.
+				if (InvocationPointProvider?.Invoke() is { } invocation)
 				{
 					invocationAnchor = invocation.Anchor;
 					invocationPosition = invocation.Position;
-					var refreshedY = GetInvocationReferenceScreenPoint(openedContent, scale).Y;
-					if (!double.IsNaN(refreshedY))
-						referenceScreenY = refreshedY;
 				}
 
-				// The predicted direction can be wrong within the estimation error at the flip boundary; the
-				// popup's offsets give where the menu actually opened (window-logical coordinates), so verify
-				// and move the row when it landed on the wrong end.
+				// The pre-render guess can be wrong within the estimation error at the flip boundary. Decide the
+				// final position the way CommandBarFlyoutCommandBar does after its flyout is placed: from the
+				// menu's ACTUAL position. A context menu is a windowed popup positioned by moving its own popup
+				// window (the popup's offsets don't reflect the final placement), so the placed top edge comes
+				// from the popup window's screen position; in-window popups fall back to the offset. The row goes
+				// on whichever end is nearest the invocation point - also the best answer when the menu is taller
+				// than the work area and the pointer lands mid-menu.
+				var referenceScreenY = GetInvocationReferenceScreenY();
 				if (!double.IsNaN(referenceScreenY) && presenter.ActualHeight > 0)
 				{
-					var appWindow = MainWindow.Instance.AppWindow
-						?? throw new InvalidOperationException("The app window is not available.");
-					var menuTopScreen = appWindow.Position.Y + popup.VerticalOffset * scale;
-					var menuBottomScreen = menuTopScreen + presenter.ActualHeight * scale;
+					var popupScale = presenter.XamlRoot.RasterizationScale;
+					double menuTopScreen;
+					var mainWindowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(MainWindow.Instance.WindowHandle);
+					if (presenter.XamlRoot.ContentIslandEnvironment?.AppWindowId is { } islandWindowId && islandWindowId.Value != mainWindowId.Value)
+					{
+						// The popup window is borderless, so its position is the menu's top-left
+						menuTopScreen = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(islandWindowId).Position.Y;
+					}
+					else
+					{
+						menuTopScreen = ClientYToScreen(popup.VerticalOffset);
+					}
+
+					var menuBottomScreen = menuTopScreen + presenter.ActualHeight * popupScale;
 					var actuallyOpenedUp = referenceScreenY - menuTopScreen > menuBottomScreen - referenceScreenY;
 					if (actuallyOpenedUp != openedUp)
 					{
@@ -554,6 +575,80 @@ namespace Files.App.Helpers.ContextFlyouts
 			}
 		}
 
+		[DynamicWindowsRuntimeCast(typeof(Panel))]
+		private void Flyout_Closed(object? sender, object e)
+		{
+			if (primaryRow?.Tag is not Panel row)
+				return;
+
+			foreach (var button in row.Children.OfType<Button>())
+				button.KeyboardAccelerators.Clear();
+		}
+
+		/// <summary>
+		/// Converts a Y coordinate in the main XamlRoot's space to physical screen coordinates through the
+		/// window's client origin (AppWindow.Position is the OUTER top-left, off by the border/caption).
+		/// </summary>
+		private static double ClientYToScreen(double xamlRootY)
+		{
+			var scale = MainWindow.Instance.Content.XamlRoot?.RasterizationScale ?? 1.0;
+			var clientOrigin = new System.Drawing.Point(0, 0);
+			Windows.Win32.PInvoke.ClientToScreen(new(MainWindow.Instance.WindowHandle), ref clientOrigin);
+			return clientOrigin.Y + xamlRootY * scale;
+		}
+
+		/// <summary>
+		/// The invocation point in physical screen coordinates, most reliable first: the explicit invocation
+		/// point when supplied, else the live mouse cursor, else the top of a small target. NaN when unknown.
+		/// </summary>
+		private double GetInvocationReferenceScreenY()
+		{
+			if (invocationAnchor is { } anchor && invocationPosition is { } position)
+			{
+				try
+				{
+					return ClientYToScreen(anchor.TransformToVisual(null).TransformPoint(position).Y);
+				}
+				catch (Exception ex)
+				{
+					Debug.WriteLine(ex);
+				}
+			}
+
+			var cursorY = double.NaN;
+			try
+			{
+				if (Windows.Win32.PInvoke.GetCursorPos(out var cursor))
+					cursorY = cursor.Y;
+			}
+			catch (Exception ex)
+			{
+				Debug.WriteLine(ex);
+			}
+
+			if (Flyout.Target is FrameworkElement target && target.ActualHeight > 0 && target.ActualHeight <= 300)
+			{
+				try
+				{
+					var scale = MainWindow.Instance.Content.XamlRoot?.RasterizationScale ?? 1.0;
+					var targetTopScreen = ClientYToScreen(target.TransformToVisual(null).TransformPoint(new Point(0, 0)).Y);
+
+					// Tolerance band around the target: a pointer invocation can land a few px outside the
+					// row the flyout ends up anchored to
+					var isCursorNearTarget = cursorY >= targetTopScreen - 24 && cursorY <= targetTopScreen + target.ActualHeight * scale + 24;
+					return isCursorNearTarget ? cursorY : targetTopScreen;
+				}
+				catch
+				{
+					return double.NaN;
+				}
+			}
+
+			return cursorY;
+		}
+
+		[DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
+		[DynamicWindowsRuntimeCast(typeof(MenuFlyoutSeparator))]
 		private bool PredictOpensUpward()
 		{
 			try
@@ -563,7 +658,6 @@ namespace Files.App.Helpers.ContextFlyouts
 
 				var scale = content.XamlRoot?.RasterizationScale ?? 1.0;
 				var (referenceX, referenceY) = GetInvocationReferenceScreenPoint(content, scale);
-				referenceScreenY = referenceY;
 				if (double.IsNaN(referenceY))
 					return false;
 
@@ -654,6 +748,8 @@ namespace Files.App.Helpers.ContextFlyouts
 		private static double EstimateTextWidth(string? text)
 			=> (text?.Length ?? 0) * 7.3;
 
+		[DynamicWindowsRuntimeCast(typeof(Style))]
+		[DynamicWindowsRuntimeCast(typeof(ControlTemplate))]
 		private MenuFlyoutItem BuildPrimaryCommandRow(List<ContextMenuFlyoutItemViewModel> models)
 		{
 			var row = new StackPanel
@@ -694,8 +790,7 @@ namespace Files.App.Helpers.ContextFlyouts
 				row.Children.Add(button);
 			}
 
-			primaryRowTemplate ??= (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
-				"<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='MenuFlyoutItem'><ContentPresenter Content='{TemplateBinding Tag}' Margin='4,2' /></ControlTemplate>");
+			primaryRowTemplate ??= (ControlTemplate)App.Current.Resources["PrimaryCommandMenuFlyoutItemTemplate"];
 
 			// The row's min width sets the whole main menu's min width, reserving the measured content width
 			// up-front so the accelerator column cannot widen it after it opens.

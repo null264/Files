@@ -13,6 +13,7 @@ using Microsoft.UI.Xaml.Input;
 using System.IO;
 using System.Windows.Input;
 using Windows.ApplicationModel.DataTransfer;
+using WinRT;
 
 namespace Files.App.ViewModels.UserControls
 {
@@ -78,7 +79,11 @@ namespace Files.App.ViewModels.UserControls
 
 		public bool ShowShelfPaneToggleButton => AppearanceSettingsService.ShowShelfPaneToggleButton && AppLifecycleHelper.AppEnvironment is AppEnvironment.Dev;
 
-		private NavigationToolbar? AddressToolbar => (MainWindow.Instance.Content as Frame)?.FindDescendant<NavigationToolbar>();
+		private NavigationToolbar? AddressToolbar
+		{
+			[DynamicWindowsRuntimeCast(typeof(Frame))]
+			get => (MainWindow.Instance.Content as Frame)?.FindDescendant<NavigationToolbar>();
+		}
 
 		public bool HasAdditionalAction =>
 			InstanceViewModel.IsPageTypeRecycleBin ||
@@ -101,11 +106,11 @@ namespace Files.App.ViewModels.UserControls
 
 		public bool CanExtract => Commands.DecompressArchive.CanExecute(null) || Commands.DecompressArchiveHere.CanExecute(null) || Commands.DecompressArchiveHereSmart.CanExecute(null) || Commands.DecompressArchiveToChildFolder.CanExecute(null);
 
-		public bool IsCardsLayout => InstanceViewModel.FolderSettings.LayoutMode is FolderLayoutModes.CardsView;
-		public bool IsColumnLayout => InstanceViewModel.FolderSettings.LayoutMode is FolderLayoutModes.ColumnView;
-		public bool IsGridLayout => InstanceViewModel.FolderSettings.LayoutMode is FolderLayoutModes.GridView;
-		public bool IsDetailsLayout => InstanceViewModel.FolderSettings.LayoutMode is FolderLayoutModes.DetailsView;
-		public bool IsListLayout => InstanceViewModel.FolderSettings.LayoutMode is FolderLayoutModes.ListView;
+		public bool IsCardsLayout => _InstanceViewModel?.FolderSettings.LayoutMode is FolderLayoutModes.CardsView;
+		public bool IsColumnLayout => _InstanceViewModel?.FolderSettings.LayoutMode is FolderLayoutModes.ColumnView;
+		public bool IsGridLayout => _InstanceViewModel?.FolderSettings.LayoutMode is FolderLayoutModes.GridView;
+		public bool IsDetailsLayout => _InstanceViewModel?.FolderSettings.LayoutMode is FolderLayoutModes.DetailsView;
+		public bool IsListLayout => _InstanceViewModel?.FolderSettings.LayoutMode is FolderLayoutModes.ListView;
 
 		public bool IsLayoutSizeCompact =>
 			(IsDetailsLayout && UserSettingsService.LayoutSettingsService.DetailsViewSize == DetailsViewSizeKind.Compact) ||
@@ -365,6 +370,7 @@ namespace Files.App.ViewModels.UserControls
 		}
 
 		[Obsolete("Superseded by Omnibar.")]
+		[DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
 		public void PathBoxItem_DragLeave(object sender, DragEventArgs e)
 		{
 			if (((FrameworkElement)sender).DataContext is not PathBoxItem pathBoxItem ||
@@ -381,6 +387,7 @@ namespace Files.App.ViewModels.UserControls
 		}
 
 		[Obsolete("Superseded by Omnibar.")]
+		[DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
 		public async Task PathBoxItem_Drop(object sender, DragEventArgs e)
 		{
 			if (_lockFlag)
@@ -420,6 +427,7 @@ namespace Files.App.ViewModels.UserControls
 		}
 
 		[Obsolete("Superseded by Omnibar.")]
+		[DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
 		public async Task PathBoxItem_DragOver(object sender, DragEventArgs e)
 		{
 			if (IsSingleItemOverride ||
@@ -502,6 +510,7 @@ namespace Files.App.ViewModels.UserControls
 		}
 
 		[Obsolete("Superseded by Omnibar.")]
+		[DynamicWindowsRuntimeCast(typeof(TextBox))]
 		public void CurrentPathSetTextBox_TextChanged(object sender, TextChangedEventArgs args)
 		{
 			if (sender is TextBox textBox)
@@ -1166,7 +1175,7 @@ namespace Files.App.ViewModels.UserControls
 
 		public async Task PopulateOmnibarSuggestionsForSearchMode()
 		{
-			if (ContentPageContext.ShellPage is null)
+			if (_isDisposed || ContentPageContext.ShellPage is null)
 				return;
 
 			if (InstanceViewModel?.IsPageTypeSettings == true)
@@ -1280,7 +1289,8 @@ namespace Files.App.ViewModels.UserControls
 
 		public void CancelSuggestionSearch()
 		{
-			_suggestSearchCTS.Cancel();
+			if (!_isDisposed)
+				_suggestSearchCTS.Cancel();
 		}
 
 		// Disposer

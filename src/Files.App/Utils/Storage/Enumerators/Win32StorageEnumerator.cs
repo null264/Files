@@ -20,7 +20,7 @@ namespace Files.App.Utils.Storage
 
 		public static async Task<List<ListedItem>> ListEntries(
 			string path,
-			IntPtr hFile,
+			Win32PInvoke.SafeFindHandle hFile,
 			Win32PInvoke.WIN32_FIND_DATA findData,
 			CancellationToken cancellationToken,
 			int countLimit,
@@ -28,6 +28,10 @@ namespace Files.App.Utils.Storage
 		)
 		{
 			var sampler = new IntervalSampler(500);
+			// The first flush is time-based only: folders that enumerate faster than the
+			// interval get a single sorted apply, slow folders show content early.
+			var firstBatchSampler = new IntervalSampler(50);
+			var hasFlushedFirstBatch = false;
 			var tempList = new List<ListedItem>();
 			var count = 0;
 
@@ -38,77 +42,85 @@ namespace Files.App.Utils.Storage
 			bool showDotFiles = userSettingsService.FoldersSettingsService.ShowDotFiles;
 			bool areAlternateStreamsVisible = userSettingsService.FoldersSettingsService.AreAlternateStreamsVisible;
 
-			var isGitRepo = GitHelpers.IsRepositoryEx(path, out var repoPath) && !string.IsNullOrEmpty((await GitHelpers.GetRepositoryHead(repoPath))?.Name);
+			var isGitRepo = GitHelpers.IsRepositoryEx(path, out var repoPath) && !string.IsNullOrEmpty(await GitHelpers.GetRepositoryHeadName(repoPath));
+			var rawHandle = hFile.DangerousGetHandle();
 
-			do
+			try
 			{
-				var isSystem = ((FileAttributes)findData.dwFileAttributes & FileAttributes.System) == FileAttributes.System;
-				var isHidden = ((FileAttributes)findData.dwFileAttributes & FileAttributes.Hidden) == FileAttributes.Hidden;
-				var startWithDot = findData.cFileName.StartsWith('.');
-				if ((!isHidden ||
-					(showHiddenItems &&
-					(!isSystem || showProtectedSystemFiles))) &&
-					(!startWithDot || showDotFiles))
+				do
 				{
-					if (((FileAttributes)findData.dwFileAttributes & FileAttributes.Directory) != FileAttributes.Directory)
+					var isSystem = ((FileAttributes)findData.dwFileAttributes & FileAttributes.System) == FileAttributes.System;
+					var isHidden = ((FileAttributes)findData.dwFileAttributes & FileAttributes.Hidden) == FileAttributes.Hidden;
+					var startWithDot = findData.cFileName.StartsWith('.');
+					if ((!isHidden ||
+						(showHiddenItems &&
+							(!isSystem || showProtectedSystemFiles))) &&
+						(!startWithDot || showDotFiles))
 					{
-						var file = await GetFile(findData, path, isGitRepo, cancellationToken);
-						if (file is not null)
+						if (((FileAttributes)findData.dwFileAttributes & FileAttributes.Directory) != FileAttributes.Directory)
 						{
-							var filePath = file.ItemPath!;
-							file.PreloadedIconData = await iconCacheService.GetIconAsync(file.ItemPath, file.FileExtension, false);
-							tempList.Add(file);
-							++count;
-
-							if (areAlternateStreamsVisible)
+							var file = await GetFile(findData, path, isGitRepo, cancellationToken);
+							if (file is not null)
 							{
-								tempList.AddRange(EnumAdsForPath(filePath, file));
-							}
-						}
-					}
-					else if (((FileAttributes)findData.dwFileAttributes & FileAttributes.Directory) == FileAttributes.Directory)
-					{
-						if (findData.cFileName != "." && findData.cFileName != "..")
-						{
-							var folder = await GetFolder(findData, path, isGitRepo, cancellationToken);
-							if (folder is not null)
-							{
-								var folderPath = folder.ItemPath!;
-								folder.PreloadedIconData = await iconCacheService.GetIconAsync(folder.ItemPath, null, true);
-								tempList.Add(folder);
+								var filePath = file.ItemPath!;
+								file.PreloadedIconData = await iconCacheService.GetIconAsync(file.ItemPath, file.FileExtension, false);
+								tempList.Add(file);
 								++count;
 
 								if (areAlternateStreamsVisible)
-									tempList.AddRange(EnumAdsForPath(folderPath, folder));
-
-								if (CalculateFolderSizes)
+									tempList.AddRange(EnumAdsForPath(filePath, file));
+							}
+						}
+						else if (((FileAttributes)findData.dwFileAttributes & FileAttributes.Directory) == FileAttributes.Directory)
+						{
+							if (findData.cFileName != "." && findData.cFileName != "..")
+							{
+								var folder = await GetFolder(findData, path, isGitRepo, cancellationToken);
+								if (folder is not null)
 								{
-									if (folderSizeProvider.TryGetSize(folderPath, out var size))
-									{
-										folder.FileSizeBytes = (long)size;
-										folder.FileSize = size.ToSizeString();
-									}
+									var folderPath = folder.ItemPath!;
+									folder.PreloadedIconData = await iconCacheService.GetIconAsync(folder.ItemPath, null, true);
+									tempList.Add(folder);
+									++count;
 
-									_ = folderSizeProvider.UpdateAsync(folderPath, cancellationToken);
+									if (areAlternateStreamsVisible)
+										tempList.AddRange(EnumAdsForPath(folderPath, folder));
+
+									if (CalculateFolderSizes)
+									{
+										if (folderSizeProvider.TryGetSize(folderPath, out var size))
+										{
+											folder.FileSizeBytes = (long)size;
+											folder.FileSize = size.ToSizeString();
+										}
+
+										_ = folderSizeProvider.UpdateAsync(folderPath, cancellationToken);
+									}
 								}
 							}
 						}
 					}
-				}
 
-				if (cancellationToken.IsCancellationRequested || count == countLimit)
-					break;
+					if (cancellationToken.IsCancellationRequested || count == countLimit)
+						break;
 
-				if (intermediateAction is not null && (count == 32 || sampler.CheckNow()))
-				{
-					await intermediateAction(tempList);
+					if (intermediateAction is not null &&
+						(hasFlushedFirstBatch
+							? sampler.CheckNow()
+							: tempList.Count > 0 && firstBatchSampler.CheckNow()))
+					{
+						hasFlushedFirstBatch = true;
+						await intermediateAction(tempList);
 
-					// clear the temporary list every time we do an intermediate action
-					tempList.Clear();
-				}
-			} while (Win32PInvoke.FindNextFile(hFile, out findData));
-
-			Win32PInvoke.FindClose(hFile);
+						// clear the temporary list every time we do an intermediate action
+						tempList.Clear();
+					}
+				} while (Win32PInvoke.FindNextFile(rawHandle, out findData));
+			}
+			finally
+			{
+				hFile.Dispose();
+			}
 
 			return tempList;
 		}
@@ -332,7 +344,9 @@ namespace Files.App.Utils.Storage
 			{
 				var isUrl = FileExtensionHelpers.IsWebLinkFile(findData.cFileName);
 
-				var shInfo = await FileOperationsHelpers.ParseLinkAsync(itemPath);
+				// Listing only needs the data stored in the link file; resolving the target
+				// can block on moved or unreachable targets and is done when the item is opened
+				var shInfo = await FileOperationsHelpers.ParseLinkAsync(itemPath, resolveTarget: false);
 				if (shInfo is null)
 					return null;
 

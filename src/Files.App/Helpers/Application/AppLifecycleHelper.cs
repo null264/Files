@@ -7,7 +7,6 @@ using Files.App.Services.SizeProvider;
 using Files.App.Utils.Logger;
 using Files.App.ViewModels.Settings;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using Sentry;
@@ -104,6 +103,8 @@ namespace Files.App.Helpers
 			var generalSettingsService = userSettingsService.GeneralSettingsService;
 			var jumpListService = Ioc.Default.GetRequiredService<IWindowsJumpListService>();
 
+			ActiveSessionTracker.ReportPersistedTime();
+
 			// Start off a list of tasks we need to run before we can continue startup
 			await Task.WhenAll(
 				App.QuickAccessManager.InitializeAsync()
@@ -187,29 +188,102 @@ namespace Files.App.Helpers
 				var packageVersion = Package.Current.Id.Version;
 				options.Release = $"{packageVersion.Major}.{packageVersion.Minor}.{packageVersion.Build}";
 				options.TracesSampleRate = 0.10;
+				// Active-session reports must not be sampled away or their sums undercount;
+				// returning null falls back to TracesSampleRate for everything else
+				options.TracesSampler = context =>
+					context.TransactionContext.Operation == ActiveSessionTracker.TransactionOperation ? 1.0 : null;
 				options.ProfilesSampleRate = 0.05;
 				options.Environment = AppEnvironment == AppEnvironment.StorePreview || AppEnvironment == AppEnvironment.SideloadPreview ? "preview" : "production";
+				options.CacheDirectoryPath = ApplicationData.Current.LocalFolder.Path;
 
 				options.DisableWinUiUnhandledExceptionIntegration();
+
+				options.SetBeforeSend(sentryEvent =>
+				{
+					if (sentryEvent.Message is { } message)
+					{
+						message.Message = SanitizeSentryText(message.Message);
+						message.Formatted = SanitizeSentryText(message.Formatted);
+					}
+
+					if (sentryEvent.SentryExceptions is { } sentryExceptions)
+					{
+						foreach (var sentryException in sentryExceptions)
+						{
+							sentryException.Value = SanitizeSentryText(sentryException.Value);
+
+							if (sentryException.Stacktrace?.Frames is { } frames)
+							{
+								foreach (var frame in frames)
+								{
+									frame.FileName = LogPathHelper.RedactUserName(frame.FileName);
+									frame.AbsolutePath = LogPathHelper.RedactUserName(frame.AbsolutePath);
+								}
+							}
+						}
+					}
+
+					foreach (var key in sentryEvent.Extra.Keys.ToList())
+					{
+						if (sentryEvent.Extra[key] is string text)
+							sentryEvent.SetExtra(key, SanitizeSentryText(text) ?? string.Empty);
+					}
+
+					return sentryEvent;
+				});
+
+				options.SetBeforeBreadcrumb(breadcrumb =>
+				{
+					var message = SanitizeSentryText(breadcrumb.Message);
+
+					Dictionary<string, string>? sanitizedData = null;
+					if (breadcrumb.Data is { } data)
+					{
+						foreach (var (key, value) in data)
+						{
+							var sanitizedValue = SanitizeSentryText(value);
+							if (sanitizedValue != value)
+							{
+								sanitizedData ??= new(data);
+								sanitizedData[key] = sanitizedValue ?? string.Empty;
+							}
+						}
+					}
+
+					if (message == breadcrumb.Message && sanitizedData is null)
+						return breadcrumb;
+
+					return new Breadcrumb(message!, breadcrumb.Type!, sanitizedData ?? breadcrumb.Data, breadcrumb.Category, breadcrumb.Level);
+				});
 			});
+		}
+
+		/// <summary>
+		/// Scrubs user names and file system paths from text before it is attached to a Sentry event.
+		/// </summary>
+		private static string? SanitizeSentryText(string? text)
+		{
+			return text is null ? null : LogPathHelper.SanitizeMessage(text);
 		}
 
 		/// <summary>
 		/// Configures DI (dependency injection) container.
 		/// </summary>
-		public static IHost ConfigureHost()
+		/// <param name="appModel">Constructed on the UI thread by the caller (its ctor is UI-thread-only).</param>
+		public static IServiceProvider ConfigureHost(AppModel appModel)
 		{
-			var builder = Host.CreateDefaultBuilder()
-				.UseContentRoot(Package.Current.InstalledLocation.Path)
-				.UseEnvironment(AppLifecycleHelper.AppEnvironment.ToString())
-				.ConfigureLogging(builder => builder
-					.ClearProviders()
-					.AddConsole()
+			var services = new ServiceCollection();
+			var fileLoggerProvider = new FileLoggerProvider(Path.Combine(ApplicationData.Current.LocalFolder.Path, "debug.log"));
+
+			services.AddSingleton(fileLoggerProvider);
+
+			services.AddLogging(builder => builder
 					.AddDebug()
-					.AddProvider(new FileLoggerProvider(Path.Combine(ApplicationData.Current.LocalFolder.Path, "debug.log")))
+					.AddProvider(fileLoggerProvider)
 					.AddProvider(new SentryLoggerProvider())
-					.SetMinimumLevel(LogLevel.Information))
-				.ConfigureServices(services => services
+					.SetMinimumLevel(LogLevel.Information));
+
+			services
 					// Settings services
 					.AddSingleton<IUserSettingsService, UserSettingsService>()
 					.AddSingleton<IAppearanceSettingsService, AppearanceSettingsService>(sp => new AppearanceSettingsService(((UserSettingsService)sp.GetRequiredService<IUserSettingsService>()).GetSharingContext()))
@@ -288,18 +362,17 @@ namespace Files.App.Helpers
 					.AddSingleton<StorageHistoryWrapper>()
 					.AddSingleton<FileTagsManager>()
 					.AddSingleton<LibraryManager>()
-					.AddSingleton<AppModel>()
-				);
+					.AddSingleton(appModel);
 
 			// Conditional DI
 			if (AppEnvironment is AppEnvironment.SideloadPreview or AppEnvironment.SideloadStable)
-				builder.ConfigureServices(s => s.AddSingleton<IUpdateService, SideloadUpdateService>());
+				services.AddSingleton<IUpdateService, SideloadUpdateService>();
 			else if (AppEnvironment is AppEnvironment.StorePreview or AppEnvironment.StoreStable)
-				builder.ConfigureServices(s => s.AddSingleton<IUpdateService, StoreUpdateService>());
+				services.AddSingleton<IUpdateService, StoreUpdateService>();
 			else
-				builder.ConfigureServices(s => s.AddSingleton<IUpdateService, DummyUpdateService>());
+				services.AddSingleton<IUpdateService, DummyUpdateService>();
 
-			return builder.Build();
+			return services.BuildServiceProvider();
 		}
 
 		/// <summary>
@@ -498,11 +571,11 @@ namespace Files.App.Helpers
 			catch
 			{
 				// Swallow any exception escaping the handler so it can't re-enter
-				// Application.UnhandledException before Process.Kill terminates the process.
+				// Application.UnhandledException before the process terminates.
 			}
 			finally
 			{
-				Process.GetCurrentProcess().Kill();
+				Environment.Exit(ex?.HResult ?? 1);
 			}
 		}
 

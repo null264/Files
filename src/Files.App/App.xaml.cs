@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Files.App.Helpers.Application;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Xaml;
@@ -12,6 +13,7 @@ using Windows.Win32;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
+using WinRT;
 
 namespace Files.App
 {
@@ -48,6 +50,8 @@ namespace Files.App
 		private static CancellationTokenSource _hideCts = new();
 		public static CancellationToken WindowHideToken => _hideCts.Token;
 
+		public static Microsoft.UI.Dispatching.DispatcherQueue? UiDispatcher { get; private set; }
+
 		/// <summary>
 		/// Initializes an instance of <see cref="App"/>.
 		/// </summary>
@@ -60,6 +64,8 @@ namespace Files.App
 			UnhandledException += (sender, e) => AppLifecycleHelper.HandleAppUnhandledException(e.Exception, true, "Application.UnhandledException", e.Message);
 			AppDomain.CurrentDomain.UnhandledException += (sender, e) => AppLifecycleHelper.HandleAppUnhandledException(e.ExceptionObject as Exception, false, "AppDomain.UnhandledException");
 			TaskScheduler.UnobservedTaskException += (sender, e) => AppLifecycleHelper.HandleAppUnhandledException(e.Exception, false, "TaskScheduler.UnobservedTaskException");
+			AppDomain.CurrentDomain.ProcessExit += static (_, _) =>
+				SafetyExtensions.IgnoreExceptions(() => Ioc.Default.GetService<FileLoggerProvider>()?.TryCompleteAndFlush(TimeSpan.FromSeconds(2)));
 		}
 
 		/// <summary>
@@ -67,29 +73,90 @@ namespace Files.App
 		/// </summary>
 		protected override void OnLaunched(LaunchActivatedEventArgs e)
 		{
+			UiDispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+
+			// Constructed on the UI thread: the ctor subscribes the UI-thread-only Clipboard.ContentChanged
+			AppModel = new AppModel();
+
 			_ = ActivateAsync();
 
 			async Task ActivateAsync()
 			{
+				// Build the DI container off-thread while the window initializes
+				var appModel = AppModel;
+				var servicesTask = Task.Run(() =>
+				{
+					try
+					{
+						var provider = AppLifecycleHelper.ConfigureHost(appModel);
+
+						// Configure Ioc here so Ioc.Default-dependent constructions warm off-thread too
+						Ioc.Default.ConfigureServices(provider);
+
+						// Warm the settings file reads off the UI thread
+						_ = provider.GetRequiredService<IGeneralSettingsService>().LeaveAppRunning;
+						_ = provider.GetRequiredService<IAppearanceSettingsService>().AppThemeBackdropMaterial;
+
+						// Read through these statics by the action/context ctors warmed below
+						QuickAccessManager = provider.GetRequiredService<QuickAccessManager>();
+						HistoryWrapper = provider.GetRequiredService<StorageHistoryWrapper>();
+						FileTagsManager = provider.GetRequiredService<FileTagsManager>();
+						LibraryManager = provider.GetRequiredService<LibraryManager>();
+
+						// Warm every command and hotkey off-thread, below normal so window creation wins the cores
+						var previousPriority = Thread.CurrentThread.Priority;
+						Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+						try
+						{
+							_ = provider.GetRequiredService<ICommandManager>();
+						}
+						catch (Exception)
+						{
+							// A command ctor that needs the UI thread aborts the warm-up; it runs on first use instead
+						}
+						finally
+						{
+							Thread.CurrentThread.Priority = previousPriority;
+						}
+
+						return provider;
+					}
+					catch (Exception)
+					{
+						// A UI-thread-only service ctor failed off-thread; rebuilt on the UI thread below
+						return null;
+					}
+				});
+
 				// Get AppActivationArguments
 				var appActivationArguments = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().GetActivatedEventArgs();
 				var isStartupTask = appActivationArguments.Data is Windows.ApplicationModel.Activation.IStartupTaskActivatedEventArgs;
+
+				// IsDynamicCodeSupported is false on Native AOT, where startup is fast enough to skip the splash screen
+				var showSplashScreen = System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported;
 
 				if (!isStartupTask)
 				{
 					// Initialize and activate MainWindow
 					MainWindow.Instance.Activate();
 
-					// Wait for the Window to initialize
-					await Task.Delay(10);
+					if (showSplashScreen)
+					{
+						// Wait for the Window to initialize
+						await Task.Delay(10);
 
-					SplashScreenLoadingTCS = new TaskCompletionSource();
-					MainWindow.Instance.ShowSplashScreen();
+						SplashScreenLoadingTCS = new TaskCompletionSource();
+						MainWindow.Instance.ShowSplashScreen();
+					}
 				}
 
 				// Configure the DI (dependency injection) container
-				var host = AppLifecycleHelper.ConfigureHost();
-				Ioc.Default.ConfigureServices(host.Services);
+				var serviceProvider = await servicesTask;
+				if (serviceProvider is null)
+				{
+					serviceProvider = AppLifecycleHelper.ConfigureHost(appModel);
+					Ioc.Default.ConfigureServices(serviceProvider);
+				}
 
 				// Configure Sentry
 				if (AppLifecycleHelper.AppEnvironment is not AppEnvironment.Dev)
@@ -103,11 +170,14 @@ namespace Files.App
 					// Initialize and activate MainWindow
 					MainWindow.Instance.Activate();
 
-					// Wait for the Window to initialize
-					await Task.Delay(10);
+					if (showSplashScreen)
+					{
+						// Wait for the Window to initialize
+						await Task.Delay(10);
 
-					SplashScreenLoadingTCS = new TaskCompletionSource();
-					MainWindow.Instance.ShowSplashScreen();
+						SplashScreenLoadingTCS = new TaskCompletionSource();
+						MainWindow.Instance.ShowSplashScreen();
+					}
 				}
 
 				// TODO: Replace with DI
@@ -126,14 +196,20 @@ namespace Files.App
 
 				if (!(isStartupTask && isLeaveAppRunning))
 				{
-					// Wait for the UI to update
-					await SplashScreenLoadingTCS!.Task.WithTimeoutAsync(TimeSpan.FromMilliseconds(500));
-					SplashScreenLoadingTCS = null;
+					if (SplashScreenLoadingTCS is not null)
+					{
+						// Wait for the UI to update
+						await SplashScreenLoadingTCS.Task.WithTimeoutAsync(TimeSpan.FromMilliseconds(500));
+						SplashScreenLoadingTCS = null;
+					}
 
-					// Create a system tray icon
-					SystemTrayIcon = new SystemTrayIcon();
-					if (userSettingsService.GeneralSettingsService.ShowSystemTrayIcon)
-						SystemTrayIcon.Show();
+					// Deferred so the first frame renders first
+					MainWindow.Instance.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+					{
+						SystemTrayIcon = new SystemTrayIcon();
+						if (userSettingsService.GeneralSettingsService.ShowSystemTrayIcon)
+							SystemTrayIcon.Show();
+					});
 
 					_ = MainWindow.Instance.InitializeApplicationAsync(appActivationArguments.Data);
 				}
@@ -182,6 +258,12 @@ namespace Files.App
 		{
 			Logger.LogInformation($"Window_Activated: State={args.WindowActivationState}");
 
+			ActiveSessionTracker.OnActivationChanged(args.WindowActivationState != WindowActivationState.Deactivated);
+
+			// MainWindow derives from WinUIEx.WindowEx, so it doesn't get the backdrop wiring in Files.App.Data.Items.WindowEx
+			if (MainWindow.Instance.SystemBackdrop is AppSystemBackdrop appSystemBackdrop)
+				appSystemBackdrop.SetInputActive(args.WindowActivationState is not WindowActivationState.Deactivated);
+
 			if (args.WindowActivationState != WindowActivationState.Deactivated)
 				AppModel.IsMainWindowClosed = false;
 
@@ -215,7 +297,8 @@ namespace Files.App
 				return;
 			}
 
-
+			// Persist the final active stretch; it is reported on the next launch
+			ActiveSessionTracker.OnActivationChanged(false);
 
 			// Save the current tab list in case it was overwriten by another instance
 			if (userSettingsService.GeneralSettingsService.ContinueLastSessionOnStartUp || userSettingsService.AppSettingsService.RestoreTabsOnStartup)
@@ -333,6 +416,7 @@ namespace Files.App
 		/// <summary>
 		/// Gets invoked when the last opened flyout is closed.
 		/// </summary>
+		[DynamicWindowsRuntimeCast(typeof(FlyoutBase))]
 		private static void LastOpenedFlyout_Closed(object? sender, object e)
 		{
 			if (sender is not FlyoutBase flyoutBase)

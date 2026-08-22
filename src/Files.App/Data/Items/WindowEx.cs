@@ -11,6 +11,7 @@ using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Gdi;
 using Windows.Win32.UI.WindowsAndMessaging;
+using WinRT;
 using MONITORENUMPROC = Windows.Win32.Extras.ManagedMONITORENUMPROC;
 using WNDPROC = Windows.Win32.Extras.ManagedWNDPROC;
 
@@ -50,6 +51,7 @@ namespace Files.App.Data.Items
 		public bool IsMaximizable
 		{
 			get => _IsMaximizable;
+			[DynamicWindowsRuntimeCast(typeof(OverlappedPresenter))]
 			set
 			{
 				_IsMaximizable = value;
@@ -66,6 +68,7 @@ namespace Files.App.Data.Items
 		public bool IsMinimizable
 		{
 			get => _IsMinimizable;
+			[DynamicWindowsRuntimeCast(typeof(OverlappedPresenter))]
 			set
 			{
 				_IsMinimizable = value;
@@ -94,6 +97,7 @@ namespace Files.App.Data.Items
 			_oldWndProc = Marshal.GetDelegateForFunctionPointer<WNDPROC>(pOldWndProc);
 
 			Closed += WindowEx_Closed;
+			Activated += WindowEx_Activated;
 		}
 
 		private unsafe void StoreWindowPlacementData()
@@ -122,7 +126,7 @@ namespace Files.App.Data.Items
 			WINDOWPLACEMENT placement = default;
 			PInvoke.GetWindowPlacement(new(WindowHandle), ref placement);
 
-			int structSize = Marshal.SizeOf(typeof(WINDOWPLACEMENT));
+			int structSize = Marshal.SizeOf<WINDOWPLACEMENT>();
 			IntPtr buffer = Marshal.AllocHGlobal(structSize);
 			Marshal.StructureToPtr(placement, buffer, false);
 			byte[] placementData = new byte[structSize];
@@ -178,11 +182,11 @@ namespace Files.App.Data.Items
 					return;
 			}
 
-			int structSize = Marshal.SizeOf(typeof(WINDOWPLACEMENT));
+			int structSize = Marshal.SizeOf<WINDOWPLACEMENT>();
 			byte[] placementData = br.ReadBytes(structSize);
 			IntPtr buffer = Marshal.AllocHGlobal(structSize);
 			Marshal.Copy(placementData, 0, buffer, structSize);
-			var windowPlacementData = (WINDOWPLACEMENT)Marshal.PtrToStructure(buffer, typeof(WINDOWPLACEMENT))!;
+			var windowPlacementData = Marshal.PtrToStructure<WINDOWPLACEMENT>(buffer);
 
 			Marshal.FreeHGlobal(buffer);
 
@@ -285,9 +289,16 @@ namespace Files.App.Data.Items
 			StoreWindowPlacementData();
 		}
 
+		private void WindowEx_Activated(object sender, WindowActivatedEventArgs args)
+		{
+			if (SystemBackdrop is AppSystemBackdrop appSystemBackdrop)
+				appSystemBackdrop.SetInputActive(args.WindowActivationState is not WindowActivationState.Deactivated);
+		}
+
 		public void Dispose()
 		{
 			Closed -= WindowEx_Closed;
+			Activated -= WindowEx_Activated;
 		}
 	}
 }

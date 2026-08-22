@@ -4,6 +4,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using System.Collections.Specialized;
+using WinRT;
 
 namespace Files.App.Data.Contexts
 {
@@ -32,8 +33,21 @@ namespace Files.App.Data.Contexts
 			App.AppModel.PropertyChanged += AppModel_PropertyChanged;
 			BaseTabBar.OnLoaded += BaseMultitaskingControl_OnLoaded;
 			TabBar.SelectedTabItemChanged += HorizontalMultitaskingControl_SelectedTabItemChanged;
-			FocusManager.GotFocus += FocusManager_GotFocus;
-			FocusManager.LosingFocus += FocusManager_LosingFocus;
+
+			// FocusManager is UI-thread-only; defer if constructed during the off-thread prewarm
+			if (App.UiDispatcher?.HasThreadAccess ?? true)
+			{
+				FocusManager.GotFocus += FocusManager_GotFocus;
+				FocusManager.LosingFocus += FocusManager_LosingFocus;
+			}
+			else
+			{
+				App.UiDispatcher.TryEnqueue(() =>
+				{
+					FocusManager.GotFocus += FocusManager_GotFocus;
+					FocusManager.LosingFocus += FocusManager_LosingFocus;
+				});
+			}
 		}
 
 		private void AppInstances_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -61,6 +75,7 @@ namespace Files.App.Data.Contexts
 			UpdateSelectedTabIndex(newSelectedIndex);
 		}
 
+		[DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
 		private void FocusManager_GotFocus(object? sender, FocusManagerGotFocusEventArgs e)
 		{
 			if (isPopupOpen)

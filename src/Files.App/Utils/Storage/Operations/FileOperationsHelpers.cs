@@ -1,4 +1,4 @@
-// Copyright (c) Files Community
+﻿// Copyright (c) Files Community
 // Licensed under the MIT License.
 
 using Files.App.Utils.Storage.Operations;
@@ -6,16 +6,20 @@ using Files.Shared.Helpers;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.IO;
-using Vanara.PInvoke;
-using Vanara.Windows.Shell;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.Win32;
 using Windows.Win32.UI.WindowsAndMessaging;
+using FILEOPERATION_FLAGS = Windows.Win32.UI.Shell.FILEOPERATION_FLAGS;
+using HRESULT = Windows.Win32.Foundation.HRESULT;
+using HWND = Windows.Win32.Foundation.HWND;
+using PROPERTYKEY = Windows.Win32.Foundation.PROPERTYKEY;
+using SLR_FLAGS = Windows.Win32.UI.Shell.SLR_FLAGS;
 
 namespace Files.App.Utils.Storage
 {
 	public sealed partial class FileOperationsHelpers
 	{
-		private static readonly Ole32.PROPERTYKEY PKEY_FilePlaceholderStatus = new Ole32.PROPERTYKEY(new Guid("B2F9B9D6-FEC4-4DD5-94D7-8957488C807B"), 2);
+		private static readonly PROPERTYKEY PKEY_FilePlaceholderStatus = new() { fmtid = new("B2F9B9D6-FEC4-4DD5-94D7-8957488C807B"), pid = 2 };
 		private const uint PS_CLOUDFILE_PLACEHOLDER = 8;
 
 		private static ProgressHandler? progressHandler; // Warning: must be initialized from a MTA thread
@@ -24,15 +28,10 @@ namespace Files.App.Utils.Storage
 		{
 			return STATask.Run(token =>
 			{
-				System.Windows.Forms.Clipboard.Clear();
-				var fileList = new System.Collections.Specialized.StringCollection();
-				fileList.AddRange(filesToCopy);
-				MemoryStream dropEffect = new MemoryStream(operation == DataPackageOperation.Copy ?
-					[5, 0, 0, 0] : [2, 0, 0, 0]);
-				var data = new System.Windows.Forms.DataObject();
-				data.SetFileDropList(fileList);
-				data.SetData("Preferred DropEffect", dropEffect);
-				System.Windows.Forms.Clipboard.SetDataObject(data, true);
+				uint preferredDropEffect = (uint)(operation == DataPackageOperation.Copy
+					? DataPackageOperation.Copy | DataPackageOperation.Link
+					: DataPackageOperation.Move);
+				ShellDataObject.SetClipboard(filesToCopy, preferredDropEffect);
 			}, App.Logger, App.WindowHideToken);
 		}
 
@@ -42,16 +41,12 @@ namespace Files.App.Utils.Storage
 			{
 				using var op = new ShellFileOperations2();
 
-				op.Options = ShellFileOperations.OperationFlags.Silent
-							| ShellFileOperations.OperationFlags.NoConfirmMkDir
-							| ShellFileOperations.OperationFlags.RenameOnCollision
-							| ShellFileOperations.OperationFlags.NoErrorUI;
+				op.Options = FILEOPERATION_FLAGS.FOF_SILENT | FILEOPERATION_FLAGS.FOF_NOCONFIRMMKDIR | FILEOPERATION_FLAGS.FOF_RENAMEONCOLLISION | FILEOPERATION_FLAGS.FOF_NOERRORUI;
 				if (asAdmin)
 				{
-					op.Options |= ShellFileOperations.OperationFlags.ShowElevationPrompt
-								| ShellFileOperations.OperationFlags.RequireElevation;
+					op.Options |= FILEOPERATION_FLAGS.FOFX_SHOWELEVATIONPROMPT | FILEOPERATION_FLAGS.FOFX_REQUIREELEVATION;
 				}
-				op.OwnerWindow = (IntPtr)ownerHwnd;
+				op.OwnerWindow = (HWND)(nint)ownerHwnd;
 
 				var shellOperationResult = new ShellOperationResult();
 				var parentPath = Path.GetDirectoryName(filePath);
@@ -113,10 +108,8 @@ namespace Files.App.Utils.Storage
 			{
 				using var op = new ShellFileOperations2();
 
-				op.Options = ShellFileOperations.OperationFlags.Silent
-							| ShellFileOperations.OperationFlags.NoConfirmation
-							| ShellFileOperations.OperationFlags.NoErrorUI;
-				op.Options |= ShellFileOperations.OperationFlags.RecycleOnDelete;
+				op.Options = FILEOPERATION_FLAGS.FOF_SILENT | FILEOPERATION_FLAGS.FOF_NOCONFIRMATION | FILEOPERATION_FLAGS.FOF_NOERRORUI;
+				op.Options |= FILEOPERATION_FLAGS.FOFX_RECYCLEONDELETE;
 
 				var shellOperationResult = new ShellOperationResult();
 				var tryDelete = false;
@@ -134,7 +127,7 @@ namespace Files.App.Utils.Storage
 							{
 								Succeeded = false,
 								Source = fileToDeletePath[i],
-								HResult = HRESULT.COPYENGINE_E_RECYCLE_BIN_NOT_FOUND
+								HResult = (int)HRESULT.COPYENGINE_E_RECYCLE_BIN_NOT_FOUND
 							});
 						}
 						else
@@ -159,15 +152,15 @@ namespace Files.App.Utils.Storage
 				var deleteTcs = new TaskCompletionSource<bool>();
 				op.PreDeleteItem += [DebuggerHidden] (s, e) =>
 				{
-					if (!e.Flags.HasFlag(ShellFileOperations.TransferFlags.DeleteRecycleIfPossible))
+					if ((e.Flags & Windows.Win32.UI.Shell._TRANSFER_SOURCE_FLAGS.TSF_DELETE_RECYCLE_IF_POSSIBLE) is 0)
 					{
 						shellOperationResult.Items.Add(new ShellOperationItemResult()
 						{
 							Succeeded = false,
 							Source = e.SourceItem.GetParsingPath(),
-							HResult = HRESULT.COPYENGINE_E_RECYCLE_BIN_NOT_FOUND
+							HResult = (int)HRESULT.COPYENGINE_E_RECYCLE_BIN_NOT_FOUND
 						});
-						throw new Win32Exception(HRESULT.COPYENGINE_E_RECYCLE_BIN_NOT_FOUND); // E_FAIL, stops operation
+						throw new Win32Exception((int)HRESULT.COPYENGINE_E_RECYCLE_BIN_NOT_FOUND); // E_FAIL, stops operation
 					}
 					else
 					{
@@ -175,9 +168,9 @@ namespace Files.App.Utils.Storage
 						{
 							Succeeded = true,
 							Source = e.SourceItem.GetParsingPath(),
-							HResult = HRESULT.COPYENGINE_E_USER_CANCELLED
+							HResult = (int)HRESULT.COPYENGINE_E_USER_CANCELLED
 						});
-						throw new Win32Exception(HRESULT.COPYENGINE_E_USER_CANCELLED); // E_FAIL, stops operation
+						throw new Win32Exception((int)HRESULT.COPYENGINE_E_USER_CANCELLED); // E_FAIL, stops operation
 					}
 				};
 				op.FinishOperations += (s, e) => deleteTcs.TrySetResult(e.Result.Succeeded);
@@ -230,25 +223,18 @@ namespace Files.App.Utils.Storage
 			{
 				using var op = new ShellFileOperations2();
 
-				op.Options =
-					ShellFileOperations.OperationFlags.Silent |
-					ShellFileOperations.OperationFlags.NoConfirmation |
-					ShellFileOperations.OperationFlags.NoErrorUI;
+				op.Options = FILEOPERATION_FLAGS.FOF_SILENT | FILEOPERATION_FLAGS.FOF_NOCONFIRMATION | FILEOPERATION_FLAGS.FOF_NOERRORUI;
 
 				if (asAdmin)
 				{
-					op.Options |=
-						ShellFileOperations.OperationFlags.ShowElevationPrompt |
-						ShellFileOperations.OperationFlags.RequireElevation;
+					op.Options |= FILEOPERATION_FLAGS.FOFX_SHOWELEVATIONPROMPT | FILEOPERATION_FLAGS.FOFX_REQUIREELEVATION;
 				}
 
-				op.OwnerWindow = (IntPtr)ownerHwnd;
+				op.OwnerWindow = (HWND)(nint)ownerHwnd;
 
 				if (!permanently)
 				{
-					op.Options |=
-						ShellFileOperations.OperationFlags.RecycleOnDelete |
-						ShellFileOperations.OperationFlags.WantNukeWarning;
+					op.Options |= FILEOPERATION_FLAGS.FOFX_RECYCLEONDELETE | FILEOPERATION_FLAGS.FOF_WANTNUKEWARNING;
 				}
 
 				var shellOperationResult = new ShellOperationResult();
@@ -351,15 +337,13 @@ namespace Files.App.Utils.Storage
 				using var op = new ShellFileOperations2();
 				var shellOperationResult = new ShellOperationResult();
 
-				op.Options = ShellFileOperations.OperationFlags.Silent
-						  | ShellFileOperations.OperationFlags.NoErrorUI;
+				op.Options = FILEOPERATION_FLAGS.FOF_SILENT | FILEOPERATION_FLAGS.FOF_NOERRORUI;
 				if (asAdmin)
 				{
-					op.Options |= ShellFileOperations.OperationFlags.ShowElevationPrompt
-							| ShellFileOperations.OperationFlags.RequireElevation;
+					op.Options |= FILEOPERATION_FLAGS.FOFX_SHOWELEVATIONPROMPT | FILEOPERATION_FLAGS.FOFX_REQUIREELEVATION;
 				}
-				op.OwnerWindow = (IntPtr)ownerHwnd;
-				op.Options |= !overwriteOnRename ? ShellFileOperations.OperationFlags.RenameOnCollision : 0;
+				op.OwnerWindow = (HWND)(nint)ownerHwnd;
+				op.Options |= !overwriteOnRename ? FILEOPERATION_FLAGS.FOF_RENAMEONCOLLISION : 0;
 
 				if (!SafetyExtensions.IgnoreExceptions(() =>
 				{
@@ -445,24 +429,16 @@ namespace Files.App.Utils.Storage
 				using var op = new ShellFileOperations2();
 				var shellOperationResult = new ShellOperationResult();
 
-				op.Options =
-					ShellFileOperations.OperationFlags.NoConfirmMkDir |
-					ShellFileOperations.OperationFlags.Silent |
-					ShellFileOperations.OperationFlags.NoErrorUI;
+				op.Options = FILEOPERATION_FLAGS.FOF_NOCONFIRMMKDIR | FILEOPERATION_FLAGS.FOF_SILENT | FILEOPERATION_FLAGS.FOF_NOERRORUI;
 
 				if (asAdmin)
 				{
-					op.Options |=
-						ShellFileOperations.OperationFlags.ShowElevationPrompt |
-						ShellFileOperations.OperationFlags.RequireElevation;
+					op.Options |= FILEOPERATION_FLAGS.FOFX_SHOWELEVATIONPROMPT | FILEOPERATION_FLAGS.FOFX_REQUIREELEVATION;
 				}
 
-				op.OwnerWindow = (IntPtr)ownerHwnd;
+				op.OwnerWindow = (HWND)(nint)ownerHwnd;
 
-				op.Options |=
-					!overwriteOnMove
-						? ShellFileOperations.OperationFlags.PreserveFileExtensions | ShellFileOperations.OperationFlags.RenameOnCollision
-						: ShellFileOperations.OperationFlags.NoConfirmation;
+				op.Options |= !overwriteOnMove ? FILEOPERATION_FLAGS.FOFX_PRESERVEFILEEXTENSIONS | FILEOPERATION_FLAGS.FOF_RENAMEONCOLLISION : FILEOPERATION_FLAGS.FOF_NOCONFIRMATION;
 
 				for (var i = 0; i < fileToMovePath.Length; i++)
 				{
@@ -592,24 +568,16 @@ namespace Files.App.Utils.Storage
 
 				var shellOperationResult = new ShellOperationResult();
 
-				op.Options =
-					ShellFileOperations.OperationFlags.NoConfirmMkDir |
-					ShellFileOperations.OperationFlags.Silent |
-					ShellFileOperations.OperationFlags.NoErrorUI;
+				op.Options = FILEOPERATION_FLAGS.FOF_NOCONFIRMMKDIR | FILEOPERATION_FLAGS.FOF_SILENT | FILEOPERATION_FLAGS.FOF_NOERRORUI;
 
 				if (asAdmin)
 				{
-					op.Options |=
-						ShellFileOperations.OperationFlags.ShowElevationPrompt |
-						ShellFileOperations.OperationFlags.RequireElevation;
+					op.Options |= FILEOPERATION_FLAGS.FOFX_SHOWELEVATIONPROMPT | FILEOPERATION_FLAGS.FOFX_REQUIREELEVATION;
 				}
 
-				op.OwnerWindow = (IntPtr)ownerHwnd;
+				op.OwnerWindow = (HWND)(nint)ownerHwnd;
 
-				op.Options |=
-					!overwriteOnCopy
-						? ShellFileOperations.OperationFlags.PreserveFileExtensions | ShellFileOperations.OperationFlags.RenameOnCollision
-						: ShellFileOperations.OperationFlags.NoConfirmation;
+				op.Options |= !overwriteOnCopy ? FILEOPERATION_FLAGS.FOFX_PRESERVEFILEEXTENSIONS | FILEOPERATION_FLAGS.FOF_RENAMEONCOLLISION : FILEOPERATION_FLAGS.FOF_NOCONFIRMATION;
 
 				for (var i = 0; i < fileToCopyPath.Length; i++)
 				{
@@ -730,7 +698,12 @@ namespace Files.App.Utils.Storage
 			}
 		}
 
-		public static async Task<ShellLinkItem?> ParseLinkAsync(string linkPath)
+		/// <param name="resolveTarget">
+		/// Whether to run the shell's link resolution (which may search for moved targets and touch the
+		/// network). Pass <see langword="false"/> when only the data stored in the link file is needed,
+		/// e.g. for listing items.
+		/// </param>
+		public static async Task<ShellLinkItem?> ParseLinkAsync(string linkPath, bool resolveTarget = true)
 		{
 			if (string.IsNullOrEmpty(linkPath))
 				return null;
@@ -741,19 +714,15 @@ namespace Files.App.Utils.Storage
 			{
 				if (FileExtensionHelpers.IsShortcutFile(linkPath))
 				{
-					using var link = new ShellLink(linkPath, LinkResolution.NoUIWithMsgPump, default, TimeSpan.FromMilliseconds(100));
+					using var link = resolveTarget
+						? new ShellLink(linkPath, SLR_FLAGS.SLR_NO_UI_WITH_MSG_PUMP, timeout: TimeSpan.FromMilliseconds(100))
+						: new ShellLink(linkPath, resolve: false);
 					targetPath = link.TargetPath;
 					return ShellFolderExtensions.GetShellLinkItem(link);
 				}
 				else if (FileExtensionHelpers.IsWebLinkFile(linkPath))
 				{
-					targetPath = await STATask.Run(token =>
-					{
-						var ipf = new Url.IUniformResourceLocator();
-						((System.Runtime.InteropServices.ComTypes.IPersistFile)ipf).Load(linkPath, 0);
-						ipf.GetUrl(out var retVal);
-						return retVal ?? string.Empty;
-					}, App.Logger, App.WindowHideToken);
+					targetPath = await STATask.Run(token => InternetShortcut.Load(linkPath), App.Logger, App.WindowHideToken);
 					return string.IsNullOrEmpty(targetPath) ?
 						new ShellLinkItem
 						{
@@ -797,7 +766,7 @@ namespace Files.App.Utils.Storage
 					newLink.SaveAs(linkSavePath); // Overwrite if exists
 
 					// ShowState has to be set after SaveAs has been called, otherwise an UnauthorizedAccessException gets thrown in some cases
-					newLink.ShowState = (ShowWindowCommand)showWindowCommand;
+					newLink.ShowState = showWindowCommand;
 
 					return Task.FromResult(true);
 				}
@@ -805,9 +774,7 @@ namespace Files.App.Utils.Storage
 				{
 					return STATask.Run(token =>
 					{
-						var ipf = new Url.IUniformResourceLocator();
-						ipf.SetUrl(targetPath, Url.IURL_SETURL_FLAGS.IURL_SETURL_FL_GUESS_PROTOCOL);
-						((System.Runtime.InteropServices.ComTypes.IPersistFile)ipf).Save(linkSavePath, false); // Overwrite if exists
+						InternetShortcut.Save(linkSavePath, targetPath);
 						return true;
 					}, App.Logger, App.WindowHideToken);
 				}
@@ -955,7 +922,7 @@ namespace Files.App.Utils.Storage
 
 		private static bool TrySetLnkShortcutIcon(string filePath, string iconFile, int iconIndex)
 		{
-			using var link = new ShellLink(filePath, LinkResolution.NoUIWithMsgPump, default, TimeSpan.FromMilliseconds(100));
+			using var link = new ShellLink(filePath, SLR_FLAGS.SLR_NO_UI_WITH_MSG_PUMP, timeout: TimeSpan.FromMilliseconds(100));
 			if (string.IsNullOrWhiteSpace(iconFile))
 			{
 				link.IconLocation = new IconLocation(string.Empty, 0);
@@ -974,16 +941,16 @@ namespace Files.App.Utils.Storage
 
 		private static ShellItem? GetFirstFile(ShellItem shi)
 		{
-			if (!shi.IsFolder || shi.Attributes.HasFlag(ShellItemAttribute.Stream))
+			if (!shi.IsFolder || shi.IsStream)
 			{
 				return shi;
 			}
 			using var shf = new ShellFolder(shi);
-			if (shf.FirstOrDefault(x => !x.IsFolder || x.Attributes.HasFlag(ShellItemAttribute.Stream)) is ShellItem item)
+			if (shf.FirstOrDefault(x => !x.IsFolder || x.IsStream) is ShellItem item)
 			{
 				return item;
 			}
-			foreach (var shsfi in shf.Where(x => x.IsFolder && !x.Attributes.HasFlag(ShellItemAttribute.Stream)))
+			foreach (var shsfi in shf.Where(x => x.IsFolder && !x.IsStream))
 			{
 				using var shsf = new ShellFolder(shsfi);
 				if (GetFirstFile(shsf) is ShellItem item2)
@@ -1024,7 +991,7 @@ namespace Files.App.Utils.Storage
 							using var si = new ShellItem(destination);
 							if (si.IsFolder) // File tag is not copied automatically for folders
 							{
-								FileTagsHelper.WriteFileTag(destination, tag);
+								_ = FileTagsHelper.WriteFileTagAsync(destination, tag);
 							}
 						}
 						else

@@ -31,6 +31,9 @@ namespace Files.App.Utils.Git
 		/// <inheritdoc cref="IVersionControlService.GetRepositoryHead(string?)"/>
 		public static Task<BranchItem?> GetRepositoryHead(string? path) => _implementation.GetRepositoryHead(path);
 
+		/// <inheritdoc cref="IVersionControlService.GetRepositoryHeadName(string?)"/>
+		public static Task<string?> GetRepositoryHeadName(string? path) => _implementation.GetRepositoryHeadName(path);
+
 		/// <inheritdoc cref="IVersionControlService.Checkout(string?, string?)"/>
 		public static Task<bool> Checkout(string? repositoryPath, string? branch) => _implementation.Checkout(repositoryPath, branch);
 
@@ -43,8 +46,9 @@ namespace Files.App.Utils.Git
 		/// <inheritdoc cref="IVersionControlService.ValidateBranchNameForRepository(string, string)"/>
 		public static bool ValidateBranchNameForRepository(string branchName, string repositoryPath) => _implementation.ValidateBranchNameForRepository(branchName, repositoryPath);
 
-		/// <inheritdoc cref="IVersionControlService.FetchOrigin(string?, CancellationToken)"/>
-		public static async void FetchOrigin(string? repositoryPath, CancellationToken cancellationToken = default) => _implementation.FetchOrigin(repositoryPath, cancellationToken);
+		/// <inheritdoc cref="IVersionControlService.FetchOriginAsync(string?, CancellationToken)"/>
+		public static Task FetchOriginAsync(string? repositoryPath, CancellationToken cancellationToken = default)
+			=> _implementation.FetchOriginAsync(repositoryPath, cancellationToken);
 
 		/// <inheritdoc cref="IVersionControlService.IsExecutingGitAction"/>
 		public static bool IsExecutingGitAction => _implementation.IsExecutingGitAction;
@@ -275,7 +279,8 @@ namespace Files.App.Utils.Git
 					return;
 				}
 
-				codeJsonContent = await codeResponse.Content.ReadFromJsonAsync<JsonDocument>();
+				await using var codeStream = await codeResponse.Content.ReadAsStreamAsync();
+				codeJsonContent = await JsonDocument.ParseAsync(codeStream);
 				if (codeJsonContent is null)
 				{
 					await DynamicDialogFactory.GetFor_GitHubConnectionError().TryShowAsync();
@@ -315,7 +320,8 @@ namespace Files.App.Utils.Git
 						break;
 					}
 
-					var loginJsonContent = await loginResponse.Content.ReadFromJsonAsync<JsonDocument>();
+					await using var loginStream = await loginResponse.Content.ReadAsStreamAsync();
+					using var loginJsonContent = await JsonDocument.ParseAsync(loginStream);
 					if (loginJsonContent is null)
 					{
 						dialog.Hide();
@@ -383,7 +389,9 @@ namespace Files.App.Utils.Git
 		public static GitItemModel GetGitInformationForItem(Repository repository, string path, bool getStatus = true, bool getCommit = true)
 		{
 			var rootRepoPath = repository.Info.WorkingDirectory;
-			var relativePath = path.Substring(rootRepoPath.Length).Replace('\\', '/');
+			var relativePath = SystemIO.Path.GetRelativePath(rootRepoPath, path).Replace('\\', '/');
+			if (relativePath == ".")
+				relativePath = string.Empty;
 
 			Commit? commit = null;
 			if (getCommit)
@@ -397,10 +405,17 @@ namespace Files.App.Utils.Git
 			if (getStatus)
 			{
 				changeKind = ChangeKind.Unmodified;
-				//foreach (TreeEntryChanges c in repository.Diff.Compare<TreeChanges>())
-				foreach (TreeEntryChanges c in repository.Diff.Compare<TreeChanges>(repository.Commits.FirstOrDefault()?.Tree, DiffTargets.Index | DiffTargets.WorkingDirectory))
+				string[]? pathsToCompare = relativePath.Length == 0 ? null : [relativePath];
+				foreach (TreeEntryChanges c in repository.Diff.Compare<TreeChanges>(
+					repository.Commits.FirstOrDefault()?.Tree,
+					DiffTargets.Index | DiffTargets.WorkingDirectory,
+					pathsToCompare))
 				{
-					if (c.Path.StartsWith(relativePath))
+					if (relativePath.Length == 0 ||
+						c.Path.Equals(relativePath, StringComparison.Ordinal) ||
+						(c.Path.Length > relativePath.Length &&
+						c.Path.StartsWith(relativePath, StringComparison.Ordinal) &&
+						c.Path[relativePath.Length] == '/'))
 					{
 						changeKind = c.Status;
 						break;
@@ -424,7 +439,10 @@ namespace Files.App.Utils.Git
 			{
 				Status = changeKind,
 				StatusHumanized = changeKindHumanized,
-				LastCommit = commit,
+				LastCommitDate = commit?.Author.When,
+				LastCommitMessage = commit?.MessageShort,
+				LastCommitAuthor = commit?.Author.Name,
+				LastCommitSha = commit?.Sha,
 				Path = relativePath,
 			};
 
@@ -563,12 +581,10 @@ namespace Files.App.Utils.Git
 		{
 			if (useSemaphore)
 				await GitOperationSemaphore.WaitAsync();
-			else
-				await Task.Yield();
 
 			try
 			{
-				return (T)payload();
+				return (T)await Task.Run(payload);
 			}
 			finally
 			{

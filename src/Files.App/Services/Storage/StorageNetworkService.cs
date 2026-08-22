@@ -2,8 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Text;
-using Vanara.PInvoke;
-using Vanara.Windows.Shell;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.NetworkManagement.WNet;
@@ -101,7 +99,7 @@ namespace Files.App.Services
 			var networkLocations = await STATask.Run(token =>
 			{
 				var locations = new List<ShellLinkItem>();
-				using (var netHood = new ShellFolder(Shell32.KNOWNFOLDERID.FOLDERID_NetHood))
+				using (var netHood = new ShellFolder(PInvoke.FOLDERID_NetHood))
 				{
 					foreach (var item in netHood)
 					{
@@ -223,47 +221,58 @@ namespace Files.App.Services
 		}
 
 		/// <inheritdoc/>
-		public async Task<bool> AuthenticateNetworkShare(string path)
+		public async Task<bool> AuthenticateNetworkShare(string path, CancellationToken cancellationToken)
 		{
-			var netRes = new NETRESOURCEW() { dwType = NET_RESOURCE_TYPE.RESOURCETYPE_DISK };
-
-			unsafe
+			if (await Task.Run(() =>
 			{
-
-				if (!path.StartsWith(@"\\", StringComparison.Ordinal))
+				unsafe
 				{
-					//  Special handling for network drives
-					//  This part will change path from "y:\Download" to "\\192.168.0.1\nfs\Download"
-					Span<char> remoteName = stackalloc char[300];
-					uint length = (uint)remoteName.Length;
-					string lpLocalName = path.Substring(0, 2);
+					if (!path.StartsWith(@"\\", StringComparison.Ordinal))
+					{
+						//  Special handling for network drives
+						//  This part will change path from "y:\Download" to "\\192.168.0.1\nfs\Download"
+						Span<char> remoteName = stackalloc char[300];
+						uint length = (uint)remoteName.Length;
+						string lpLocalName = path.Substring(0, 2);
 
-					WIN32_ERROR ret = PInvoke.WNetGetConnection(lpLocalName, remoteName, ref length);
+						WIN32_ERROR ret = PInvoke.WNetGetConnection(lpLocalName, remoteName, ref length);
 
-					if (ret == WIN32_ERROR.NO_ERROR)
-						path = path.Replace(lpLocalName, remoteName[..(int)length].TrimEnd('\0').ToString());
+						if (ret == WIN32_ERROR.NO_ERROR)
+							path = path.Replace(lpLocalName, remoteName[..(int)length].TrimEnd('\0').ToString());
 
+					}
+
+					// Skip authentication for virtual disk shares
+					// These providers create virtual disk paths that don't work with Windows networking APIs
+					if (VirtualDiskPrefixes.Any(prefix => path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+					{
+						return (Skip: true, Result: WIN32_ERROR.NO_ERROR);
+					}
+
+					// WNetAddConnection3W only accepts "\\server" or "\\server\share" as lpRemoteName;
+					// deeper paths fail (e.g. ERROR_DIRECTORY when the path points to a file such as an archive)
+					var shareRootSegments = path.Substring(2).Split('\\', StringSplitOptions.RemoveEmptyEntries);
+					if (shareRootSegments.Length > 2)
+						path = @"\\" + shareRootSegments[0] + @"\" + shareRootSegments[1];
+
+					// If credentials are saved, this will return NO_ERROR
+					fixed (char* lpcPath = path)
+					{
+						var netRes = new NETRESOURCEW()
+						{
+							dwType = NET_RESOURCE_TYPE.RESOURCETYPE_DISK,
+							lpRemoteName = new PWSTR(lpcPath)
+						};
+
+						return (Skip: false, Result: (WIN32_ERROR)PInvoke.WNetAddConnection3W(new(nint.Zero), netRes, null, null, 0));
+					}
 				}
-
-				// Skip authentication for virtual disk shares
-				// These providers create virtual disk paths that don't work with Windows networking APIs
-				if (VirtualDiskPrefixes.Any(prefix => path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-				{
-					return true;
-				}
-
-				// WNetAddConnection3W only accepts "\\server" or "\\server\share" as lpRemoteName;
-				// deeper paths fail (e.g. ERROR_DIRECTORY when the path points to a file such as an archive)
-				var shareRootSegments = path.Substring(2).Split('\\', StringSplitOptions.RemoveEmptyEntries);
-				if (shareRootSegments.Length > 2)
-					path = @"\\" + shareRootSegments[0] + @"\" + shareRootSegments[1];
-
-				fixed (char* lpcPath = path)
-					netRes.lpRemoteName = new PWSTR(lpcPath);
+			}) is not (Skip: false, Result: var res))
+			{
+				return true;
 			}
 
-			// If credentials are saved, this will return NO_ERROR
-			var res = (WIN32_ERROR)PInvoke.WNetAddConnection3W(new(nint.Zero), netRes, null, null, 0);
+			if (cancellationToken.IsCancellationRequested) return false;
 
 			if (res == WIN32_ERROR.ERROR_LOGON_FAILURE || res == WIN32_ERROR.ERROR_ACCESS_DENIED)
 			{
@@ -273,7 +282,23 @@ namespace Files.App.Services
 
 				if (credentialsReturned is not null && credentialsReturned[1] != null)
 				{
-					res = (WIN32_ERROR)PInvoke.WNetAddConnection3W(new(nint.Zero), netRes, credentialsReturned[1], credentialsReturned[0], 0);
+					res = await Task.Run(() =>
+					{
+						unsafe
+						{
+							fixed (char* lpcPath = path)
+							{
+								var netRes = new NETRESOURCEW()
+								{
+									dwType = NET_RESOURCE_TYPE.RESOURCETYPE_DISK,
+									lpRemoteName = new PWSTR(lpcPath)
+								};
+
+								return (WIN32_ERROR)PInvoke.WNetAddConnection3W(new(nint.Zero), netRes, credentialsReturned[1], credentialsReturned[0], 0);
+							}
+						}
+					});
+
 					if (credentialsReturned[2] == "y" && res == WIN32_ERROR.NO_ERROR)
 					{
 						var creds = new CREDENTIALW()

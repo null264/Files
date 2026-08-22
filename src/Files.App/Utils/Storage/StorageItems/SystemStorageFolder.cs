@@ -3,12 +3,12 @@
 
 using Microsoft.Extensions.Logging;
 using System.Runtime.InteropServices.WindowsRuntime;
-using Vanara.PInvoke;
 using Windows.Foundation;
 using Windows.Foundation.Metadata;
 using Windows.Storage;
 using Windows.Storage.FileProperties;
 using Windows.Storage.Search;
+using WinRT;
 
 namespace Files.App.Utils.Storage
 {
@@ -38,11 +38,8 @@ namespace Files.App.Utils.Storage
 			{
 				try
 				{
-					var libraryShellItem = Shell32.ShellUtil.GetShellItemForPath(path);
-					if (libraryShellItem is null)
-						throw new System.IO.FileNotFoundException($"The library '{path}' was not found.");
-
-					using var shellItem = new ShellLibraryEx(libraryShellItem, true);
+					using var libraryFile = ShellItem.Open(path);
+					using var shellItem = new ShellLibraryEx(libraryFile.IShellItem, true);
 					if (shellItem is ShellLibraryEx library)
 					{
 						var libraryItem = ShellFolderExtensions.GetShellLibraryItem(library, path);
@@ -169,10 +166,18 @@ namespace Files.App.Utils.Storage
 			private readonly IStorageItemExtraProperties basicProps;
 			private readonly DateTimeOffset? dateCreated;
 
-			public override ulong Size => (basicProps as BasicProperties)?.Size ?? 0;
+			public override ulong Size
+			{
+				[DynamicWindowsRuntimeCast(typeof(BasicProperties))]
+				get => (basicProps as BasicProperties)?.Size ?? 0;
+			}
 
 			public override DateTimeOffset DateCreated => dateCreated ?? DateTimeOffset.Now;
-			public override DateTimeOffset DateModified => (basicProps as BasicProperties)?.DateModified ?? DateTimeOffset.Now;
+			public override DateTimeOffset DateModified
+			{
+				[DynamicWindowsRuntimeCast(typeof(BasicProperties))]
+				get => (basicProps as BasicProperties)?.DateModified ?? DateTimeOffset.Now;
+			}
 
 			public SystemFolderBasicProperties(IStorageItemExtraProperties basicProps, DateTimeOffset dateCreated)
 			{

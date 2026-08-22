@@ -7,6 +7,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Animation;
+using WinRT;
 
 namespace Files.App.ViewModels.Properties
 {
@@ -44,7 +45,8 @@ namespace Files.App.ViewModels.Properties
 
 		public MainPropertiesViewModel(Window window, Frame mainFrame, BaseProperties baseProperties, PropertiesPageNavigationParameter parameter)
 		{
-			ChangedPropertiesCancellationTokenSource = new();
+			ChangedPropertiesCancellationTokenSource = parameter.CancellationTokenSource
+				?? throw new InvalidOperationException("The properties parameter does not contain a cancellation token source.");
 
 			Window = window;
 			_mainFrame = mainFrame;
@@ -97,6 +99,7 @@ namespace Files.App.ViewModels.Properties
 			_mainFrame?.Navigate(page, parameter, new EntranceNavigationTransitionInfo());
 		}
 
+		[DynamicWindowsRuntimeCast(typeof(Page))]
 		private void ExecuteDoBackwardNavigationCommand()
 		{
 			if (NavigationItems is null ||

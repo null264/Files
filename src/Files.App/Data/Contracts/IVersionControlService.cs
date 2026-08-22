@@ -57,6 +57,18 @@ namespace Files.App.Data.Contracts
 		Task<BranchItem?> GetRepositoryHead(string? path);
 
 		/// <summary>
+		/// Gets the name of the current repository HEAD branch.
+		/// </summary>
+		/// <param name="path">A path to the repository working directory.</param>
+		/// <returns>
+		/// A task producing the HEAD branch name, or <see langword="null"/> if the repository is invalid or has no commits.
+		/// </returns>
+		/// <remarks>
+		/// Unlike <see cref="GetRepositoryHead"/>, this does not compute tracking details, making it suitable for hot paths that only need to know whether a valid HEAD exists.
+		/// </remarks>
+		Task<string?> GetRepositoryHeadName(string? path);
+
+		/// <summary>
 		/// Checks out the specified branch.
 		/// </summary>
 		/// <param name="repositoryPath">A path to the repository working directory.</param>
@@ -107,7 +119,7 @@ namespace Files.App.Data.Contracts
 		/// <remarks>
 		/// Implementations should raise <see cref="GitFetchCompleted"/> when the fetch completes successfully.
 		/// </remarks>
-		void FetchOrigin(string? repositoryPath, CancellationToken cancellationToken = default);
+		Task FetchOriginAsync(string? repositoryPath, CancellationToken cancellationToken = default);
 
 		/// <summary>
 		/// Pulls from the default remote.
