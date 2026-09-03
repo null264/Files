@@ -18,8 +18,6 @@ using Windows.UI.Input;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using WinRT;
-using WinUIEx;
-using WinUIEx.Messaging;
 using GridSplitter = Files.App.Controls.GridSplitter;
 using VirtualKey = Windows.System.VirtualKey;
 
@@ -58,7 +56,7 @@ namespace Files.App.Views
 
 			if (AppLanguageHelper.IsPreferredLanguageRtl)
 			{
-				MainWindow.Instance.SetExtendedWindowStyle(ExtendedWindowStyle.LayoutRtl);
+				Win32Helper.EnableRtlLayout(MainWindow.Instance.WindowHandle);
 				FlowDirection = FlowDirection.RightToLeft;
 			}
 
@@ -326,6 +324,8 @@ namespace Files.App.Views
 
 		private void Page_Loaded(object sender, RoutedEventArgs e)
 		{
+			ViewModel.OnPageLoaded();
+
 			MainWindow.Instance.AppWindow.Changed += (_, _) => MainWindow.Instance.RaiseSetTitleBarDragRegion(SetTitleBarDragRegion);
 
 			// Defers loading until after the page has loaded to improve startup perf

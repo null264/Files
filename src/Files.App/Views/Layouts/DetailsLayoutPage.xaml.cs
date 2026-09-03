@@ -7,7 +7,9 @@ using Files.App.UserControls.Selection;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
@@ -48,6 +50,10 @@ namespace Files.App.Views.Layouts
 
 		protected override ListViewBase ListViewBase => FileList;
 		protected override SemanticZoom RootZoom => RootGridZoom;
+
+		[DynamicWindowsRuntimeCast(typeof(ItemsStackPanel))]
+		protected override (int First, int Last) GetVisibleIndexRange()
+			=> FileList.ItemsPanelRoot is ItemsStackPanel panel ? (panel.FirstVisibleIndex, panel.LastVisibleIndex) : (-1, -1);
 
 		public ColumnsViewModel ColumnsViewModel { get; } = new();
 
@@ -1112,7 +1118,7 @@ namespace Files.App.Views.Layouts
 		[DynamicWindowsRuntimeCast(typeof(ListViewItem))]
 		private new void FileList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
 		{
-			var selectionCheckbox = (CheckBox)args.ItemContainer.FindDescendant("SelectionCheckbox")!;
+			var selectionCheckbox = GetSelectionCheckbox(args.ItemContainer);
 
 			selectionCheckbox.PointerEntered -= SelectionCheckbox_PointerEntered;
 			selectionCheckbox.PointerExited -= SelectionCheckbox_PointerExited;
@@ -1129,6 +1135,21 @@ namespace Files.App.Views.Layouts
 			selectionCheckbox.PointerEntered += SelectionCheckbox_PointerEntered;
 			selectionCheckbox.PointerExited += SelectionCheckbox_PointerExited;
 			selectionCheckbox.PointerCanceled += SelectionCheckbox_PointerCanceled;
+		}
+
+		private readonly ConditionalWeakTable<SelectorItem, Tuple<object?, CheckBox>> selectionCheckboxCache = new();
+
+		// The template-root identity check invalidates the cache when a container is re-templated
+		[DynamicWindowsRuntimeCast(typeof(CheckBox))]
+		private CheckBox GetSelectionCheckbox(SelectorItem container)
+		{
+			var root = container.ContentTemplateRoot;
+			if (selectionCheckboxCache.TryGetValue(container, out var cached) && ReferenceEquals(cached.Item1, root))
+				return cached.Item2;
+
+			var checkbox = (CheckBox)container.FindDescendant("SelectionCheckbox")!;
+			selectionCheckboxCache.AddOrUpdate(container, new Tuple<object?, CheckBox>(root, checkbox));
+			return checkbox;
 		}
 
 		[DynamicWindowsRuntimeCast(typeof(ListViewItem))]

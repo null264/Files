@@ -9,10 +9,11 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.Windows.AppLifecycle;
-using Windows.Win32;
+using System.Runtime;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
+using Windows.Win32;
 using WinRT;
 
 namespace Files.App
@@ -225,8 +226,12 @@ namespace Files.App
 
 					Thread.Yield();
 
+					var cts = new CancellationTokenSource();
+					TryEmptyWorkingSetWhenIdle(cts.Token);
+
 					if (Program.Pool.WaitOne())
 					{
+						cts.Cancel();
 						// Resume the instance
 						Program.Pool.Dispose();
 						Program.Pool = null;
@@ -260,19 +265,17 @@ namespace Files.App
 
 			ActiveSessionTracker.OnActivationChanged(args.WindowActivationState != WindowActivationState.Deactivated);
 
-			// MainWindow derives from WinUIEx.WindowEx, so it doesn't get the backdrop wiring in Files.App.Data.Items.WindowEx
-			if (MainWindow.Instance.SystemBackdrop is AppSystemBackdrop appSystemBackdrop)
-				appSystemBackdrop.SetInputActive(args.WindowActivationState is not WindowActivationState.Deactivated);
-
 			if (args.WindowActivationState != WindowActivationState.Deactivated)
 				AppModel.IsMainWindowClosed = false;
 
-			// TODO(s): Is this code still needed?
-			if (args.WindowActivationState != WindowActivationState.CodeActivated ||
+			if (args.WindowActivationState != WindowActivationState.CodeActivated &&
 				args.WindowActivationState != WindowActivationState.PointerActivated)
 				return;
 
 			ApplicationData.Current.LocalSettings.Values["INSTANCE_ACTIVE"] = -Environment.ProcessId;
+
+			// Reclaim the tray icon if a sibling instance's exit removed the shared-GUID icon
+			SystemTrayIcon?.EnsureCreated();
 		}
 
 		/// <summary>
@@ -283,6 +286,9 @@ namespace Files.App
 		/// </remarks>
 		private async void Window_Closed(object sender, WindowEventArgs args)
 		{
+			// Stop dispatcher timers before the close handler yields and window teardown begins.
+			AppModel.IsMainWindowClosed = true;
+
 			// Save application state and stop any background activity
 			IUserSettingsService userSettingsService = Ioc.Default.GetRequiredService<IUserSettingsService>();
 			StatusCenterViewModel statusCenterViewModel = Ioc.Default.GetRequiredService<StatusCenterViewModel>();
@@ -324,20 +330,39 @@ namespace Files.App
 				PInvoke.SetEvent(eventHandle);
 			}
 
+			// Dev, preview and stable all run as "Files"; only this channel's other instances block parking
+			static bool IsSameChannelInstance(Process p)
+			{
+				if (p.Id == Environment.ProcessId)
+					return false;
+
+				try
+				{
+					return p.MainModule?.FileName.StartsWith(Package.Current.EffectivePath, StringComparison.OrdinalIgnoreCase) ?? false;
+				}
+				catch
+				{
+					// Access is denied reading another channel's MainModule
+					return false;
+				}
+			}
+
 			// Continue running the app on the background
 			if (userSettingsService.GeneralSettingsService.LeaveAppRunning &&
 				!AppModel.ForceProcessTermination &&
-				!Process.GetProcessesByName("Files").Any(x => x.Id != Environment.ProcessId))
+				!Process.GetProcessesByName("Files").Any(IsSameChannelInstance))
 			{
 				// Close open content dialogs
 				UIHelpers.CloseAllDialogs();
+
+				// Tear down the shell preview host (prevhost.exe) while the dispatcher still pumps; parking must not keep it attached
+				SafetyExtensions.IgnoreExceptions(() => Ioc.Default.GetRequiredService<InfoPaneViewModel>().UnloadPreview());
 
 				// Close all notification banners except in progress
 				statusCenterViewModel.RemoveAllCompletedItems();
 
 				// Cache the window instead of closing it
 				MainWindow.Instance.AppWindow.Hide();
-				AppModel.IsMainWindowClosed = true;
 
 				// cancel all pending STA tasks only when LeaveAppRunning is enabled
 				_hideCts.Cancel();
@@ -350,6 +375,9 @@ namespace Files.App
 
 				// Wait for all properties windows to close
 				await FilePropertiesHelpers.WaitClosingAll();
+
+				// Claim INSTANCE_ACTIVE before parking; it may still name an already-exited sibling
+				ApplicationData.Current.LocalSettings.Values["INSTANCE_ACTIVE"] = -Environment.ProcessId;
 
 				// Sleep current instance
 				Program.Pool = new(0, 1, $"Files-{AppLifecycleHelper.AppEnvironment}-Instance");
@@ -367,11 +395,15 @@ namespace Files.App
 					});
 				}
 
+				var cts = new CancellationTokenSource();
+				TryEmptyWorkingSetWhenIdle(cts.Token);
+
 				if (Program.Pool.WaitOne())
 				{
 					// reset the cts for new tasks
 					_hideCts = new();
 
+					cts.Cancel();
 					// Resume the instance
 					Program.Pool.Dispose();
 					Program.Pool = null;
@@ -407,10 +439,46 @@ namespace Files.App
 
 			// Destroy cached properties windows
 			FilePropertiesHelpers.DestroyCachedWindows();
-			AppModel.IsMainWindowClosed = true;
 
 			// Wait for ongoing file operations
 			FileOperationsHelpers.WaitForCompletion();
+		}
+
+		private static void TryEmptyWorkingSetWhenIdle(CancellationToken cancellationToken)
+		{
+			static void AggressiveGC(Windows.Win32.Foundation.HANDLE processHandle, CancellationToken cancellationToken)
+			{
+				GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+				GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, true, true);
+				GC.WaitForPendingFinalizers();
+				GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, true, true);
+				Thread.Sleep(1000);
+
+				if (cancellationToken.IsCancellationRequested)
+					return;
+
+				PInvoke.K32EmptyWorkingSet(processHandle);
+			}
+
+			new Thread(() =>
+			{
+				using var process = Process.GetCurrentProcess();
+				var processHandle = new Windows.Win32.Foundation.HANDLE(process.Handle);
+
+				// Try to empty the working set
+				AggressiveGC(processHandle, cancellationToken);
+
+				if (cancellationToken.IsCancellationRequested)
+					return;
+
+				FileOperationsHelpers.WaitForCompletion();
+				if (cancellationToken.IsCancellationRequested)
+					return;
+
+				// After all pending file operations are completed, try to empty the working set again
+				AggressiveGC(processHandle, cancellationToken);
+			})
+			{ IsBackground = true }.Start();
 		}
 
 		/// <summary>

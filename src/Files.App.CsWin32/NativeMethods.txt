@@ -74,6 +74,7 @@ GetFileTime
 SetFileTime
 GetFileInformationByHandleEx
 FILE_ID_BOTH_DIR_INFO
+IO_REPARSE_TAG_SYMLINK
 FindFirstStreamW
 FindNextStreamW
 WIN32_FIND_STREAM_DATA
@@ -398,3 +399,4 @@ FILE_STANDARD_INFO
 ShellExecuteW
 SBSP_SAMEBROWSER
 SBSP_ABSOLUTE
+K32EmptyWorkingSet
