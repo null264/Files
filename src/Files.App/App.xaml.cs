@@ -29,6 +29,7 @@ namespace Files.App
 		public static string? OutputPath { get; set; }
 
 		private static FlyoutBase? _LastOpenedFlyout;
+		private static bool _isWindowTeardownCompleted;
 		public static FlyoutBase? LastOpenedFlyout
 		{
 			set
@@ -222,20 +223,19 @@ namespace Files.App
 						SystemTrayIcon.Show();
 
 					// Sleep current instance
-					Program.Pool = new(0, 1, $"Files-{AppLifecycleHelper.AppEnvironment}-Instance");
-
-					Thread.Yield();
+					var pool = new Semaphore(0, 1, $"Files-{AppLifecycleHelper.AppEnvironment}-Instance");
+					Program.Pool = pool;
 
 					var cts = new CancellationTokenSource();
 					TryEmptyWorkingSetWhenIdle(cts.Token);
 
-					if (Program.Pool.WaitOne())
-					{
-						cts.Cancel();
-						// Resume the instance
-						Program.Pool.Dispose();
+					await WaitOneAsync(pool);
+
+					cts.Cancel();
+					// Resume the instance; a rapid close-reopen-close may have already replaced the semaphore
+					pool.Dispose();
+					if (ReferenceEquals(Program.Pool, pool))
 						Program.Pool = null;
-					}
 				}
 
 				await AppLifecycleHelper.InitializeAppComponentsAsync();
@@ -286,6 +286,10 @@ namespace Files.App
 		/// </remarks>
 		private async void Window_Closed(object sender, WindowEventArgs args)
 		{
+			// Let the final close after background teardown proceed
+			if (_isWindowTeardownCompleted)
+				return;
+
 			// Stop dispatcher timers before the close handler yields and window teardown begins.
 			AppModel.IsMainWindowClosed = true;
 
@@ -348,10 +352,15 @@ namespace Files.App
 			}
 
 			// Continue running the app on the background
+			var isClosedToBackground = false;
 			if (userSettingsService.GeneralSettingsService.LeaveAppRunning &&
 				!AppModel.ForceProcessTermination &&
 				!Process.GetProcessesByName("Files").Any(IsSameChannelInstance))
 			{
+				// Handled set after an await is read too late to cancel the close
+				args.Handled = true;
+				isClosedToBackground = true;
+
 				// Close open content dialogs
 				UIHelpers.CloseAllDialogs();
 
@@ -380,9 +389,9 @@ namespace Files.App
 				ApplicationData.Current.LocalSettings.Values["INSTANCE_ACTIVE"] = -Environment.ProcessId;
 
 				// Sleep current instance
-				Program.Pool = new(0, 1, $"Files-{AppLifecycleHelper.AppEnvironment}-Instance");
-
-				Thread.Yield();
+				var pool = new Semaphore(0, 1, $"Files-{AppLifecycleHelper.AppEnvironment}-Instance");
+				Program.Pool = pool;
+				_hideCts = new();
 
 				// Displays a notification the first time the app goes to the background
 				if (userSettingsService.AppSettingsService.ShowBackgroundRunningNotification)
@@ -400,9 +409,6 @@ namespace Files.App
 
 				if (Program.Pool.WaitOne())
 				{
-					// reset the cts for new tasks
-					_hideCts = new();
-
 					cts.Cancel();
 					// Resume the instance
 					Program.Pool.Dispose();
@@ -410,38 +416,58 @@ namespace Files.App
 
 					if (!AppModel.ForceProcessTermination)
 					{
-						args.Handled = true;
 						_ = AppLifecycleHelper.CheckAppUpdate();
 						return;
 					}
 				}
-			}
 
-			// Stop the tray icon's hidden window before continuing teardown so a late "Quit"
-			// click can't dispatch into OnQuitClicked once Application.Current is null.
-			SystemTrayIcon?.Dispose();
-			SystemTrayIcon = null;
+				// Stop the tray icon's hidden window before continuing teardown so a late "Quit"
+				// click can't dispatch into OnQuitClicked once Application.Current is null.
+				SystemTrayIcon?.Dispose();
+				SystemTrayIcon = null;
 
-			// Method can take a long time, make sure the window is hidden
-			await Task.Yield();
+				// Method can take a long time, make sure the window is hidden
+				await Task.Yield();
 
-			// Try to maintain clipboard data after app close
-			SafetyExtensions.IgnoreExceptions(() =>
-			{
-				var dataPackage = Clipboard.GetContent();
-				if (dataPackage.Properties.PackageFamilyName == Package.Current.Id.FamilyName)
+				// Try to maintain clipboard data after app close
+				SafetyExtensions.IgnoreExceptions(() =>
 				{
-					if (dataPackage.Contains(StandardDataFormats.StorageItems))
-						Clipboard.Flush();
+					var dataPackage = Clipboard.GetContent();
+					if (dataPackage.Properties.PackageFamilyName == Package.Current.Id.FamilyName)
+					{
+						if (dataPackage.Contains(StandardDataFormats.StorageItems))
+							Clipboard.Flush();
+					}
+				},
+				Logger);
+
+				// Destroy cached properties windows
+				FilePropertiesHelpers.DestroyCachedWindows();
+
+				// Wait for ongoing file operations
+				FileOperationsHelpers.WaitForCompletion();
+
+				// Close the still-alive window for real now that teardown is done
+				if (isClosedToBackground && !_isWindowTeardownCompleted)
+				{
+					_isWindowTeardownCompleted = true;
+					MainWindow.Instance.Close();
 				}
-			},
-			Logger);
+			}
+		}
 
-			// Destroy cached properties windows
-			FilePropertiesHelpers.DestroyCachedWindows();
+		private static async Task WaitOneAsync(WaitHandle handle)
+		{
+			var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+			var registration = ThreadPool.RegisterWaitForSingleObject(
+				handle,
+				static (state, _) => ((TaskCompletionSource)state!).TrySetResult(),
+				tcs,
+				Timeout.InfiniteTimeSpan,
+				executeOnlyOnce: true);
 
-			// Wait for ongoing file operations
-			FileOperationsHelpers.WaitForCompletion();
+			await tcs.Task;
+			registration.Unregister(null);
 		}
 
 		private static void TryEmptyWorkingSetWhenIdle(CancellationToken cancellationToken)

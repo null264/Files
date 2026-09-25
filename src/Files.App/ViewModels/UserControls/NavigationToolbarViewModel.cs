@@ -482,7 +482,8 @@ namespace Files.App.ViewModels.UserControls
 
 			var storageItems = await FilesystemHelpers.GetDraggedStorageItems(e.DataView);
 
-			if (!storageItems.Any(storageItem =>
+			if (storageItems.ContainsDestinationOrAncestor(pathBoxItem.Path) ||
+				!storageItems.Any(storageItem =>
 					!string.IsNullOrEmpty(storageItem?.Path) &&
 					storageItem.Path.Replace(pathBoxItem.Path, string.Empty, StringComparison.Ordinal)
 						.Trim(Path.DirectorySeparatorChar)
@@ -539,11 +540,11 @@ namespace Files.App.ViewModels.UserControls
 			ToolbarPathItemInvoked?.Invoke(this, new() { ItemPath = path });
 		}
 
-		public async Task HandleItemNavigationAsync(string path)
+		public async Task<bool> HandleItemNavigationAsync(string path)
 		{
 			var shellPage = ContentPageContext.ShellPage;
 			if (shellPage is null)
-				return;
+				return true;
 
 			var shellViewModel = shellPage.ShellViewModel
 				?? throw new InvalidOperationException("The current shell page does not have a view model.");
@@ -553,12 +554,12 @@ namespace Files.App.ViewModels.UserControls
 			var normalizedInput = NormalizePathInput(path, isFtp);
 			if (currentPath is not null && currentPath.Equals(normalizedInput, StringComparison.OrdinalIgnoreCase) ||
 				string.IsNullOrWhiteSpace(normalizedInput))
-				return;
+				return true;
 
 			if (normalizedInput.Equals(shellViewModel.WorkingDirectory) &&
 				shellPage.CurrentPageType != typeof(HomePage) &&
 				!shellViewModel.IsSearchResults)
-				return;
+				return true;
 
 			if (normalizedInput.Equals("Home", StringComparison.OrdinalIgnoreCase) ||
 				normalizedInput.Equals(Strings.Home.GetLocalizedResource(), StringComparison.OrdinalIgnoreCase))
@@ -582,7 +583,7 @@ namespace Files.App.ViewModels.UserControls
 			{
 				normalizedInput = StorageFileExtensions.GetResolvedPath(normalizedInput, isFtp);
 				if (currentPath is not null && currentPath.Equals(normalizedInput, StringComparison.OrdinalIgnoreCase))
-					return;
+					return true;
 
 				var item = await FilesystemTasks.Wrap(() => DriveHelpers.GetRootFromPathAsync(normalizedInput));
 
@@ -601,7 +602,7 @@ namespace Files.App.ViewModels.UserControls
 						bool ejectButton = await DialogDisplayHelper.ShowDialogAsync(Strings.InsertDiscDialogTitle.GetLocalizedResource(), string.Format(Strings.InsertDiscDialogText.GetLocalizedResource(), drivePath), Strings.InsertDiscDialog_OpenDriveButton.GetLocalizedResource(), Strings.Close.GetLocalizedResource());
 						if (ejectButton)
 							DriveHelpers.EjectDeviceAsync(drivePath);
-						return;
+						return true;
 					}
 
 					var pathToNavigate = resFolder.Result?.Path ?? normalizedInput;
@@ -639,18 +640,22 @@ namespace Files.App.ViewModels.UserControls
 							?? throw new InvalidOperationException("The navigation path has not been initialized.");
 
 						if (await LaunchApplicationFromPath(pathText, workingDir))
-							return;
+							return true;
 
+						var isValid = false;
 						try
 						{
-							if (!await Windows.System.Launcher.LaunchUriAsync(new Uri(pathText)))
-								await DialogDisplayHelper.ShowDialogAsync(Strings.InvalidItemDialogTitle.GetLocalizedResource(),
-									string.Format(Strings.InvalidItemDialogContent.GetLocalizedResource(), Environment.NewLine, resFolder.ErrorCode.ToString()));
+							isValid = await Windows.System.Launcher.LaunchUriAsync(new Uri(pathText));
 						}
 						catch (Exception ex) when (ex is UriFormatException || ex is ArgumentException)
 						{
+						}
+
+						if (!isValid)
+						{
 							await DialogDisplayHelper.ShowDialogAsync(Strings.InvalidItemDialogTitle.GetLocalizedResource(),
 								string.Format(Strings.InvalidItemDialogContent.GetLocalizedResource(), Environment.NewLine, resFolder.ErrorCode.ToString()));
+							return false;
 						}
 					}
 				}
@@ -661,6 +666,7 @@ namespace Files.App.ViewModels.UserControls
 			shellViewModel = shellPage.ShellViewModel
 				?? throw new InvalidOperationException("The current shell page does not have a view model.");
 			PathControlDisplayText = shellViewModel.WorkingDirectory;
+			return true;
 		}
 
 		public void SwitchToCommandPaletteMode()
