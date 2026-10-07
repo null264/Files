@@ -313,8 +313,9 @@ namespace Files.App.UserControls.TabBar
 			Items.Remove(tabItem);
 			if (!await NavigationHelpers.OpenTabInNewWindowAsync(tabViewItemArgs.Serialize(), droppedPoint.X, droppedPoint.Y))
 			{
-				Items.Insert(indexOfTabViewItem, tabItem);
-				sender.SelectedIndex = selectedTabViewItemIndex;
+				// Other tabs can close while the new window opens, so the remembered positions may no longer exist
+				Items.Insert(Math.Clamp(indexOfTabViewItem, 0, Items.Count), tabItem);
+				sender.SelectedIndex = Math.Clamp(selectedTabViewItemIndex, 0, Items.Count - 1);
 			}
 			else
 				// Dispose tab arguments
@@ -426,11 +427,11 @@ namespace Files.App.UserControls.TabBar
 			}
 		}
 
-		private async void DragAreaRectangle_Loaded(object sender, RoutedEventArgs e)
-		{
-			if (HorizontalTabView.ActualWidth <= 0 && TabBarAddNewTabButton.Width <= 0)
-				await Task.Delay(100);
+		private void DragAreaRectangle_Loaded(object sender, RoutedEventArgs e)
+			=> this.RunAfterNextRender(UpdateTitleBarInsets);
 
+		private void UpdateTitleBarInsets()
+		{
 			var titleBarInset = ((AppLanguageHelper.IsPreferredLanguageRtl
 				? MainWindow.Instance.AppWindow.TitleBar.LeftInset
 				: MainWindow.Instance.AppWindow.TitleBar.RightInset) / DragAreaRectangle.XamlRoot.RasterizationScale) + 40;
