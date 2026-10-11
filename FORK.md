@@ -82,12 +82,68 @@ Nothing outstanding. The shutdown path in `App.xaml.cs` briefly used a blocking
 the dispatcher stalls WinRT wrapper finalizers during teardown.
 
 
-## CI (planned)
+## CI
 
-- Add a fork-owned workflow file — never edit upstream's workflow files (pure additions never conflict).
-- Trigger on `fork/main` and on tags; `main` is a mirror and does not need CI.
-- Pass `-p:ForkAppxVersion=<x.y.z.w>` (e.g. derived from the tag) and, if signing, inject the
-  publisher / certificate from secrets.
+`.github/workflows/fork-build.yml` is fork-owned and purely additive (never edit upstream's
+workflow files). It builds a signed `.msixbundle`, uploads it as an artifact, and publishes a
+GitHub release when a `v*` tag is pushed. It runs on `windows-2025-vs2026` (the VS 18 image) and
+uses the same msbuild recipe as upstream's CD pipelines:
+
+    msbuild src/Files.App/Files.App.csproj -t:Build `
+      -p:Configuration=Release -p:Platform=x64 `
+      -p:AppxBundle=Always -p:AppxBundlePlatforms=x64 `
+      -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=SideloadOnly `
+      -p:AppxPackageDir=artifacts\AppxPackages\ `
+      -p:AppxPackageSigningEnabled=true `
+      -p:PackageCertificateKeyFile=<pfx> -p:PackageCertificatePassword=<from env>
+
+### One-time setup: get the signing certificate into the runner
+
+The package publisher must equal the signing certificate subject exactly, and the certificate must
+be exportable together with its private key.
+
+1. Find the certificate this fork signs with:
+
+       Get-ChildItem Cert:\CurrentUser\My | Where-Object Subject -like '*Nullsoft*' |
+         Format-List Subject, Thumbprint, NotAfter, HasPrivateKey
+
+2. If there is none, create a self-signed one whose subject matches `ForkAppxPublisher` in
+   `fork/Fork.props`:
+
+       $subject = "CN=Null's FilesDev Fork, O=Nullsoft, C=CN"
+       New-SelfSignedCertificate -Type Custom -Subject $subject `
+         -KeyUsage DigitalSignature -KeyExportPolicy Exportable `
+         -FriendlyName 'Files fork sideload' -CertStoreLocation Cert:\CurrentUser\My `
+         -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
+
+3. Export it including the private key:
+
+       $pw = ConvertTo-SecureString -String '<password>' -Force -AsPlainText
+       Export-PfxCertificate -Cert Cert:\CurrentUser\My\<thumbprint> -FilePath fork-signing.pfx -Password $pw
+
+4. Base64 the `.pfx` and store both values as repository secrets
+   (Settings -> Secrets and variables -> Actions):
+
+       [Convert]::ToBase64String([IO.File]::ReadAllBytes('fork-signing.pfx')) | Set-Clipboard
+       # secret   FORK_PFX_BASE64
+       # secret   FORK_PFX_PASSWORD
+       # variable FORK_APPX_PUBLISHER   (only if the subject differs from fork/Fork.props)
+
+   Keep the `.pfx` out of the repository (it is gitignored anyway): a leaked signing key is permanent.
+
+5. A machine that installs the package has to trust the certificate once:
+
+       Export-Certificate -Cert Cert:\CurrentUser\My\<thumbprint> -FilePath fork-signing.cer
+       Import-Certificate -FilePath fork-signing.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+
+### Using it
+
+    git tag v4.2.39.1 && git push origin v4.2.39.1   # build + sign + release
+
+Every push to `fork/main` also builds and uploads a package artifact — that is the automatic
+verification after each upstream sync. Without the secrets the workflow warns and produces an
+unsigned package instead of failing.
+
 
 ## Local build
 
