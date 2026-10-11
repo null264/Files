@@ -15,6 +15,11 @@ as a patch series on top of upstream `main`, so syncing upstream is a **rebase**
 
 ## Syncing upstream
 
+    python fork/sync-upstream.py            # fetch + mirror + rebase + range-diff report
+    python fork/sync-upstream.py --push     # ... and force-push fork/main at the end
+
+By hand it is:
+
     git fetch upstream
     git switch main      && git merge --ff-only upstream/main   # keep the mirror clean
     git switch fork/main && git rebase upstream/main            # replay the patch series
@@ -88,3 +93,16 @@ the dispatcher stalls WinRT wrapper finalizers during teardown.
 
     # VS 18 Developer PowerShell, x64
     msbuild -restore Files.slnx -p:Configuration=Debug -p:Platform=x64 -v:quiet -clp:ErrorsOnly
+
+`msbuild` is not on `PATH` outside a Developer prompt. Enter one without depending on a
+machine-specific Visual Studio instance id (the one in `AGENTS.md` belongs to another machine):
+
+    pwsh -NoProfile -Command "& 'C:\Program Files\Microsoft Visual Studio\18\Professional\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64 -HostArch amd64 -SkipAutomaticLocation; msbuild -restore Files.slnx -p:Configuration=Debug -p:Platform=x64 -v:quiet -clp:ErrorsOnly"
+
+Two local traps worth knowing:
+
+- If both `http_proxy` and `HTTP_PROXY` are set, the Roslyn build task aborts with a
+  duplicate-key error. Unset one form before building.
+- Building with `-p:ForkAppxVersion=9.9.9.9` is the quick way to prove the package identity
+  injection still works: `AppxManifest.xml` under `bin/x64/Debug/net10.0-windows*/win-x64/`
+  must show that version and the fork's `Publisher`.
