@@ -85,7 +85,9 @@ jobs:
 
     - name: Prepare the signing certificate
       id: signing
-      if: ${{ inputs.sign != false }}
+      # Note: on a push event `inputs.sign` is null, and null == false in GitHub's expression
+      # language, so a bare `inputs.sign != false` silently skips signing. Key off the event.
+      if: ${{ github.event_name == 'push' || inputs.sign != false }}
       shell: pwsh
       env:
         PFX_BASE64: ${{ secrets.FORK_PFX_BASE64 }}
