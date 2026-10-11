@@ -644,7 +644,7 @@ namespace Files.App.Helpers
 							var folder = childFolder!;
 							// Add location to Recent Items List.
 							// File.Exists distinguishes an archive root (real file on disk) from an inner path like "archive.zip\sub".
-							await STATask.RunPooled(() =>
+							await STATask.Run(token =>
 							{
 								if (folder.Item is SystemStorageFolder ||
 									(folder.Item is ZipStorageFolder && File.Exists(folder.Path)))

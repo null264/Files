@@ -73,12 +73,12 @@ namespace Files.App.Services
 				byte[] pidl = shellItem.PIDL
 					?? throw new InvalidOperationException("The Windows Shell Home namespace returned an item without a PIDL.");
 
-				var result = await STATask.Run(() =>
+				var result = await STATask.Run(token =>
 				{
 					using var item = ShellItem.Open(new ShellPidl(pidl));
 					using var windowsFile = new WindowsFile(item.IShellItem);
 					return windowsFile.TryInvokeContextMenuVerbs(["unpinfromhome", "remove"], true);
-				}, App.Logger);
+				}, App.Logger, App.WindowHideToken);
 
 				if (result.Failed)
 				{

@@ -48,6 +48,9 @@ namespace Files.App
 		public static AppModel AppModel { get; private set; } = null!;
 		public static ILogger Logger { get; private set; } = NullLogger.Instance;
 
+		private static CancellationTokenSource _hideCts = new();
+		public static CancellationToken WindowHideToken => _hideCts.Token;
+
 		public static Microsoft.UI.Dispatching.DispatcherQueue? UiDispatcher { get; private set; }
 
 		/// <summary>
@@ -85,7 +88,6 @@ namespace Files.App
 
 				// Build the DI container off-thread while the window initializes
 				var appModel = AppModel;
-				Task commandsWarmupTask = Task.CompletedTask;
 				var servicesTask = Task.Run(() =>
 				{
 					try
@@ -102,30 +104,27 @@ namespace Files.App
 						_ = appearanceSettings.AppThemeMode;
 						_ = appearanceSettings.AppThemeBackdropMaterial;
 
-						// Commands are needed for the main page, not for the initial window and backdrop.
-						commandsWarmupTask = Task.Run(() =>
-						{
-							var previousPriority = Thread.CurrentThread.Priority;
-							Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
-							try
-							{
-								// Action and context constructors access these statics.
-								QuickAccessManager = provider.GetRequiredService<QuickAccessManager>();
-								HistoryWrapper = provider.GetRequiredService<StorageHistoryWrapper>();
-								FileTagsManager = provider.GetRequiredService<FileTagsManager>();
-								LibraryManager = provider.GetRequiredService<LibraryManager>();
+						// Read through these statics by the action/context ctors warmed below
+						QuickAccessManager = provider.GetRequiredService<QuickAccessManager>();
+						HistoryWrapper = provider.GetRequiredService<StorageHistoryWrapper>();
+						FileTagsManager = provider.GetRequiredService<FileTagsManager>();
+						LibraryManager = provider.GetRequiredService<LibraryManager>();
 
-								_ = provider.GetRequiredService<ICommandManager>();
-							}
-							catch (Exception)
-							{
-								// UI-thread-only constructors run on first use instead.
-							}
-							finally
-							{
-								Thread.CurrentThread.Priority = previousPriority;
-							}
-						});
+						// Warm every command and hotkey off-thread, below normal so window creation wins the cores
+						var previousPriority = Thread.CurrentThread.Priority;
+						Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+						try
+						{
+							_ = provider.GetRequiredService<ICommandManager>();
+						}
+						catch (Exception)
+						{
+							// A command ctor that needs the UI thread aborts the warm-up; it runs on first use instead
+						}
+						finally
+						{
+							Thread.CurrentThread.Priority = previousPriority;
+						}
 
 						return provider;
 					}
@@ -141,8 +140,17 @@ namespace Files.App
 
 				if (!isStartupTask)
 				{
-					// Construct the window while appearance settings are loaded.
-					_ = MainWindow.Instance;
+					// Initialize and activate MainWindow
+					MainWindow.Instance.Activate();
+
+					if (showSplashScreen)
+					{
+						// Wait for the Window to initialize
+						await Task.Delay(10);
+
+						SplashScreenLoadingTCS = new TaskCompletionSource();
+						MainWindow.Instance.ShowSplashScreen();
+					}
 				}
 
 				// Configure the DI (dependency injection) container
@@ -152,6 +160,10 @@ namespace Files.App
 					serviceProvider = AppLifecycleHelper.ConfigureHost(appModel);
 					Ioc.Default.ConfigureServices(serviceProvider);
 				}
+
+				// Configure Sentry
+				if (AppLifecycleHelper.AppEnvironment is not AppEnvironment.Dev)
+					AppLifecycleHelper.ConfigureSentry();
 
 				var userSettingsService = Ioc.Default.GetRequiredService<IUserSettingsService>();
 				var serverInitialization = SafetyExtensions.IgnoreExceptions(async () =>
@@ -178,12 +190,6 @@ namespace Files.App
 
 				if (!await MainWindow.Instance.ActivateWithBackdropAsync())
 					return;
-
-				await commandsWarmupTask;
-
-				// Configure Sentry
-				if (AppLifecycleHelper.AppEnvironment is not AppEnvironment.Dev)
-					AppLifecycleHelper.ConfigureSentry();
 
 				// TODO: Replace with DI
 				QuickAccessManager = Ioc.Default.GetRequiredService<QuickAccessManager>();
