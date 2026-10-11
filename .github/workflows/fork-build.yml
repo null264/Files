@@ -119,6 +119,13 @@ jobs:
 
         "path=$pfxPath" >> $env:GITHUB_OUTPUT
 
+    - name: Restore
+      shell: pwsh
+      run: |
+        msbuild ${{ github.workspace }}\Files.slnx -t:Restore `
+          -p:Configuration=$env:CONFIGURATION -p:Platform=$env:PLATFORM -v:quiet
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
     - name: Build and package
       shell: pwsh
       env:
