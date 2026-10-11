@@ -106,11 +106,16 @@ jobs:
 
         # The package publisher must be exactly the certificate subject, or signing (and
         # installing) fails. Ask MSBuild for the effective value so there is one source of truth.
+        # A single -getProperty: prints the raw value; MSBuild only wraps the result in JSON
+        # when two or more properties are requested.
         $publisher = '${{ vars.FORK_APPX_PUBLISHER }}'
         if (-not $publisher) {
-          $props = msbuild $env:APP_PROJECT_PATH -getProperty:ForkAppxPublisher `
-            -p:Configuration=$env:CONFIGURATION -p:Platform=$env:PLATFORM -v:quiet | ConvertFrom-Json
-          $publisher = $props.Properties.ForkAppxPublisher
+          $out = msbuild $env:APP_PROJECT_PATH -getProperty:ForkAppxPublisher `
+            -p:Configuration=$env:CONFIGURATION -p:Platform=$env:PLATFORM -v:quiet
+          $publisher = ($out | Where-Object { $_.Trim() } | Select-Object -Last 1).Trim()
+          if ($publisher -eq '}') {
+            $publisher = ($out -join "`n" | ConvertFrom-Json).Properties.ForkAppxPublisher
+          }
         }
         Write-Host "package publisher   : $publisher"
         if ($cert.Subject -ne $publisher) {
