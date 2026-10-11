@@ -53,7 +53,7 @@ namespace Files.App.Data.Items
 			if (hr.ThrowIfFailedOnDebug().Failed)
 				return;
 
-			var rawThumbnailData = await STATask.RunPooled(() =>
+			var rawThumbnailData = await STATask.Run(_ =>
 			{
 				if (shellItemReference.Resolve(out IShellItem shellItem).ThrowIfFailedOnDebug().Failed)
 					return null;

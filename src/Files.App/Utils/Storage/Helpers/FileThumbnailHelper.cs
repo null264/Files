@@ -38,7 +38,7 @@ namespace Files.App.Utils.Storage
 
 					if (!string.Equals(extension, ".fon", StringComparison.OrdinalIgnoreCase))
 					{
-						var fontThumbnail = await STATask.Run(() => FontFileHelper.GenerateFontThumbnail(path, (int)size), App.Logger);
+						var fontThumbnail = await STATask.Run(token => FontFileHelper.GenerateFontThumbnail(path, (int)size), App.Logger, App.WindowHideToken);
 						if (fontThumbnail is not null)
 							return fontThumbnail;
 					}
@@ -49,7 +49,7 @@ namespace Files.App.Utils.Storage
 				? MtpHelpers.ResolveMtpShellPath(path) ?? path
 				: path;
 
-			return await STATask.RunPooled(() => Win32Helper.GetIcon(resolvedPath, (int)size, isFolder, iconOptions), App.Logger);
+			return await STATask.Run(token => Win32Helper.GetIcon(resolvedPath, (int)size, isFolder, iconOptions, App.WindowHideToken), App.Logger, App.WindowHideToken);
 		}
 
 		/// <summary>
@@ -62,7 +62,7 @@ namespace Files.App.Utils.Storage
 		{
 			// Overlays render at 32px in thumbnail layouts and 16px in details/columns; scale by DPI so the badge isn't upscaled at fractional scaling
 			var overlaySize = (requestedSize >= 48 ? 32u : 16u) * App.AppModel.AppWindowDPI;
-			return await STATask.RunPooled(() => Win32Helper.GetIconOverlay(path, (int)overlaySize, isFolder), App.Logger);
+			return await STATask.Run(token => Win32Helper.GetIconOverlay(path, (int)overlaySize, isFolder), App.Logger, App.WindowHideToken);
 		}
 
 		[Obsolete]
