@@ -83,7 +83,7 @@ namespace Files.App.ViewModels.UserControls.Widgets
 
 				var refreshVersion = ++_refreshVersion;
 				var homeFolder = HomePageContext.HomeFolder;
-				var folders = await STATask.RunPooled(() =>
+				var folders = await STATask.Run(_ =>
 				{
 					List<FolderSnapshot> result = [];
 					// The Shell enumerator and its metadata reads stay on this persistent STA.
@@ -266,16 +266,16 @@ namespace Files.App.ViewModels.UserControls.Widgets
 				return;
 
 			// Pin to Quick Access on Windows
-			hr = await STATask.Run(() =>
+			hr = await STATask.Run(token =>
 			{
-				hr = pAgileReference.Resolve(out IShellItem pShellItem);
-				if (hr.ThrowIfFailedOnDebug().Failed)
-					return hr;
+			hr = pAgileReference.Resolve(out IShellItem pShellItem);
+			if (hr.ThrowIfFailedOnDebug().Failed)
+				return hr;
 
-				using var windowsFile = new WindowsFile(pShellItem);
-				// NOTE: "pintohome" is an undocumented verb, which calls an undocumented COM class, windows.storage.dll!CPinToFrequentExecute : public IExecuteCommand, ...
-				return windowsFile.TryInvokeContextMenuVerb("pintohome");
-			}, App.Logger);
+			using var windowsFile = new WindowsFile(pShellItem);
+			// NOTE: "pintohome" is an undocumented verb, which calls an undocumented COM class, windows.storage.dll!CPinToFrequentExecute : public IExecuteCommand, ...
+			return windowsFile.TryInvokeContextMenuVerb("pintohome");
+		}, App.Logger, App.WindowHideToken);
 
 			// The file watcher will update the collection automatically
 		}
@@ -290,18 +290,18 @@ namespace Files.App.ViewModels.UserControls.Widgets
 				return;
 
 			// Unpin from Quick Access on Windows
-			hr = await STATask.Run(() =>
+			hr = await STATask.Run(token =>
 			{
 				hr = pAgileReference.Resolve(out IShellItem pShellItem);
 				if (hr.ThrowIfFailedOnDebug().Failed)
 					return hr;
 
-				using var windowsFile = new WindowsFile(pShellItem);
+			using var windowsFile = new WindowsFile(pShellItem);
 
-				// NOTE: "unpinfromhome" is an undocumented verb, which calls an undocumented COM class, windows.storage.dll!CRemoveFromFrequentPlacesExecute : public IExecuteCommand, ...
-				// NOTE: "remove" is for some shell folders where the "unpinfromhome" may not work
-				return windowsFile.TryInvokeContextMenuVerbs(["unpinfromhome", "remove"], true);
-			}, App.Logger);
+			// NOTE: "unpinfromhome" is an undocumented verb, which calls an undocumented COM class, windows.storage.dll!CRemoveFromFrequentPlacesExecute : public IExecuteCommand, ...
+			// NOTE: "remove" is for some shell folders where the "unpinfromhome" may not work
+			return windowsFile.TryInvokeContextMenuVerbs(["unpinfromhome", "remove"], true);
+		}, App.Logger, App.WindowHideToken);
 
 			if (hr.ThrowIfFailedOnDebug().Failed)
 				return;
