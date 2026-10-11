@@ -157,7 +157,8 @@ namespace Files.App.Helpers
 			string? path,
 			int size,
 			bool isFolder,
-			IconOptions iconOptions)
+			IconOptions iconOptions,
+			CancellationToken token)
 		{
 			if (string.IsNullOrWhiteSpace(path))
 				return null;
@@ -169,6 +170,7 @@ namespace Files.App.Helpers
 				// Attempt to get file icon/thumbnail using IShellItemImageFactory GetImage
 				using var shellItem = SafetyExtensions.IgnoreExceptions(()
 					=> ShellFolderExtensions.GetShellItemFromPathOrPIDL(path));
+				token.ThrowIfCancellationRequested();
 
 				if (shellItem is not null && shellItem.IShellItem is IShellItemImageFactory shellFactory)
 				{
@@ -554,7 +556,8 @@ namespace Files.App.Helpers
 		public static Task<bool> MountVhdDisk(string vhdPath)
 		{
 			// Mounting requires elevation
-			return RunPowershellCommandAsync($"-command \"Mount-DiskImage -ImagePath {ToPowerShellStringLiteral(vhdPath)}\"", PowerShellExecutionOptions.Elevated | PowerShellExecutionOptions.Hidden);
+			//return RunPowershellCommandAsync($"-command \"Mount-DiskImage -ImagePath '{vhdPath}'\"", PowerShellExecutionOptions.Elevated | PowerShellExecutionOptions.Hidden);
+			return RunPowershellCommandAsync($"explorer '{vhdPath}'\"", PowerShellExecutionOptions.Hidden);
 		}
 
 		public static Bitmap? GetBitmapFromHBitmap(HBITMAP hBitmap)
