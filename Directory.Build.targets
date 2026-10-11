@@ -1,0 +1,12 @@
+<!--  Fork-owned. Upstream has no Directory.Build.targets; this file exists so the fork can
+      override properties AFTER each project body (where the projects assign them) without
+      editing upstream files.  -->
+<Project>
+
+  <PropertyGroup>
+    <!--  Platforms put into the .msixbundle; CI can override with -p:ForkBundlePlatforms=...  -->
+    <ForkBundlePlatforms Condition="'$(ForkBundlePlatforms)' == ''">x64</ForkBundlePlatforms>
+    <AppxBundlePlatforms Condition="'$(ForkBundlePlatforms)' != ''">$(ForkBundlePlatforms)</AppxBundlePlatforms>
+  </PropertyGroup>
+
+</Project>
