@@ -19,7 +19,6 @@ name: Fork build
 
 on:
   push:
-    branches: [fork/main]
     tags: ['v*']
   workflow_dispatch:
     inputs:
