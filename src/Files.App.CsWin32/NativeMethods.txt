@@ -413,3 +413,7 @@ SBSP_ABSOLUTE
 K32EmptyWorkingSet
 GetDoubleClickTime
 SHChangeNotify
+
+// Shell preview host thread: STA wait primitive that dispatches COM calls and window messages
+CoWaitForMultipleHandles
+COWAIT_FLAGS
