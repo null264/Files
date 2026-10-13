@@ -49,6 +49,9 @@ namespace Files.App
 		public static AppModel AppModel { get; private set; } = null!;
 		public static ILogger Logger { get; private set; } = NullLogger.Instance;
 
+		private static CancellationTokenSource _hideCts = new();
+		public static CancellationToken WindowHideToken => _hideCts.Token;
+
 		public static Microsoft.UI.Dispatching.DispatcherQueue? UiDispatcher { get; private set; }
 
 		/// <summary>
@@ -83,7 +86,6 @@ namespace Files.App
 			{
 				// Build the DI container off-thread while the window initializes
 				var appModel = AppModel;
-				Task commandsWarmupTask = Task.CompletedTask;
 				var servicesTask = Task.Run(() =>
 				{
 					try
@@ -93,36 +95,31 @@ namespace Files.App
 						// Configure Ioc here so Ioc.Default-dependent constructions warm off-thread too
 						Ioc.Default.ConfigureServices(provider);
 
-						// Load the appearance settings needed for the first frame off the UI thread.
+						// Warm the settings file reads off the UI thread
 						_ = provider.GetRequiredService<IGeneralSettingsService>().LeaveAppRunning;
-						var appearanceSettings = provider.GetRequiredService<IAppearanceSettingsService>();
-						_ = appearanceSettings.AppThemeMode;
-						_ = appearanceSettings.AppThemeBackdropMaterial;
+						_ = provider.GetRequiredService<IAppearanceSettingsService>().AppThemeBackdropMaterial;
 
-						// Commands are needed for the main page, not for the initial window and backdrop.
-						commandsWarmupTask = Task.Run(() =>
+						// Read through these statics by the action/context ctors warmed below
+						QuickAccessManager = provider.GetRequiredService<QuickAccessManager>();
+						HistoryWrapper = provider.GetRequiredService<StorageHistoryWrapper>();
+						FileTagsManager = provider.GetRequiredService<FileTagsManager>();
+						LibraryManager = provider.GetRequiredService<LibraryManager>();
+
+						// Warm every command and hotkey off-thread, below normal so window creation wins the cores
+						var previousPriority = Thread.CurrentThread.Priority;
+						Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+						try
 						{
-							var previousPriority = Thread.CurrentThread.Priority;
-							Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
-							try
-							{
-								// Action and context constructors access these statics.
-								QuickAccessManager = provider.GetRequiredService<QuickAccessManager>();
-								HistoryWrapper = provider.GetRequiredService<StorageHistoryWrapper>();
-								FileTagsManager = provider.GetRequiredService<FileTagsManager>();
-								LibraryManager = provider.GetRequiredService<LibraryManager>();
-
-								_ = provider.GetRequiredService<ICommandManager>();
-							}
-							catch (Exception)
-							{
-								// UI-thread-only constructors run on first use instead.
-							}
-							finally
-							{
-								Thread.CurrentThread.Priority = previousPriority;
-							}
-						});
+							_ = provider.GetRequiredService<ICommandManager>();
+						}
+						catch (Exception)
+						{
+							// A command ctor that needs the UI thread aborts the warm-up; it runs on first use instead
+						}
+						finally
+						{
+							Thread.CurrentThread.Priority = previousPriority;
+						}
 
 						return provider;
 					}
@@ -142,8 +139,17 @@ namespace Files.App
 
 				if (!isStartupTask)
 				{
-					// Construct the window while appearance settings are loaded.
-					_ = MainWindow.Instance;
+					// Initialize and activate MainWindow
+					MainWindow.Instance.Activate();
+
+					if (showSplashScreen)
+					{
+						// Wait for the Window to initialize
+						await Task.Delay(10);
+
+						SplashScreenLoadingTCS = new TaskCompletionSource();
+						MainWindow.Instance.ShowSplashScreen();
+					}
 				}
 
 				// Configure the DI (dependency injection) container
@@ -154,26 +160,27 @@ namespace Files.App
 					Ioc.Default.ConfigureServices(serviceProvider);
 				}
 
-				var userSettingsService = Ioc.Default.GetRequiredService<IUserSettingsService>();
-				var isLeaveAppRunning = userSettingsService.GeneralSettingsService.LeaveAppRunning;
-
-				if (!isStartupTask || !isLeaveAppRunning)
-				{
-					if (showSplashScreen)
-					{
-						SplashScreenLoadingTCS = new TaskCompletionSource();
-						MainWindow.Instance.ShowSplashScreen();
-					}
-
-					if (!await MainWindow.Instance.ActivateWithBackdropAsync())
-						return;
-				}
-
-				await commandsWarmupTask;
-
 				// Configure Sentry
 				if (AppLifecycleHelper.AppEnvironment is not AppEnvironment.Dev)
 					AppLifecycleHelper.ConfigureSentry();
+
+				var userSettingsService = Ioc.Default.GetRequiredService<IUserSettingsService>();
+				var isLeaveAppRunning = userSettingsService.GeneralSettingsService.LeaveAppRunning;
+
+				if (isStartupTask && !isLeaveAppRunning)
+				{
+					// Initialize and activate MainWindow
+					MainWindow.Instance.Activate();
+
+					if (showSplashScreen)
+					{
+						// Wait for the Window to initialize
+						await Task.Delay(10);
+
+						SplashScreenLoadingTCS = new TaskCompletionSource();
+						MainWindow.Instance.ShowSplashScreen();
+					}
+				}
 
 				// TODO: Replace with DI
 				QuickAccessManager = Ioc.Default.GetRequiredService<QuickAccessManager>();
@@ -366,6 +373,11 @@ namespace Files.App
 				// Cache the window instead of closing it
 				MainWindow.Instance.AppWindow.Hide();
 
+				// cancel all pending STA tasks only when LeaveAppRunning is enabled
+				_hideCts.Cancel();
+				//STATask.WaitForWorkers();
+				Logger.LogInformation("All pending STA tasks have been canceled.");
+
 				// Close all tabs
 				MainPageViewModel.AppInstances.ForEach(tabItem => tabItem.Unload());
 				MainPageViewModel.AppInstances.Clear();
@@ -379,6 +391,7 @@ namespace Files.App
 				// Sleep current instance
 				var pool = new Semaphore(0, 1, $"Files-{AppLifecycleHelper.AppEnvironment}-Instance");
 				Program.Pool = pool;
+				_hideCts = new();
 
 				// Displays a notification the first time the app goes to the background
 				if (userSettingsService.AppSettingsService.ShowBackgroundRunningNotification)

@@ -1,0 +1,195 @@
+# Copyright (c) Files Community
+# Licensed under the MIT License.
+#
+# Fork-owned workflow. Never edit upstream's workflow files: this one is purely additive, so it
+# can never conflict when upstream changes theirs.
+#
+# It builds a signed .msixbundle for this fork and uploads it as an artifact; on a `v*` tag it
+# also publishes a GitHub release with the package attached.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   FORK_PFX_BASE64    base64 of the .pfx whose subject matches ForkAppxPublisher
+#   FORK_PFX_PASSWORD  the .pfx password
+# Optional repository *variable*:
+#   FORK_APPX_PUBLISHER  override the certificate subject / package publisher (defaults to
+#                        ForkAppxPublisher in fork/Fork.props).
+# Without the secrets the workflow still runs and produces an UNSIGNED package.
+
+name: Fork build
+
+on:
+  push:
+    branches: [fork/main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version, 4 parts (e.g. 4.2.39.1). Empty keeps upstream''s version.'
+        required: false
+        type: string
+      sign:
+        description: 'Sign the package (needs the FORK_PFX_* secrets)'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CONFIGURATION: Release
+  PLATFORM: x64
+  APP_PROJECT_PATH: ${{ github.workspace }}\src\Files.App\Files.App.csproj
+  APPX_PACKAGE_DIR: ${{ github.workspace }}\artifacts\AppxPackages\
+
+jobs:
+  build:
+
+    runs-on: windows-2025-vs2026   # the VS 18 (2026) image; switch to `windows-2025` if unavailable
+
+    timeout-minutes: 90
+
+    steps:
+
+    - name: Checkout the repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v3
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        global-json-file: global.json
+
+    - name: Resolve the package version
+      id: version
+      shell: pwsh
+      run: |
+        $version = '${{ inputs.version }}'
+        if (-not $version -and '${{ github.ref_type }}' -eq 'tag') {
+          $version = '${{ github.ref_name }}' -replace '^v', ''
+        }
+        # MSIX wants four parts
+        if ($version -and $version.Split('.').Count -lt 4) {
+          $version = $version + ('.0' * (4 - $version.Split('.').Count))
+        }
+        Write-Host "package version: $(if ($version) { $version } else { '<upstream version>' })"
+        "value=$version" >> $env:GITHUB_OUTPUT
+
+    - name: Prepare the signing certificate
+      id: signing
+      # Note: on a push event `inputs.sign` is null, and null == false in GitHub's expression
+      # language, so a bare `inputs.sign != false` silently skips signing. Key off the event.
+      if: ${{ github.event_name == 'push' || inputs.sign != false }}
+      shell: pwsh
+      env:
+        PFX_BASE64: ${{ secrets.FORK_PFX_BASE64 }}
+        PFX_PASSWORD: ${{ secrets.FORK_PFX_PASSWORD }}
+      run: |
+        if (-not $env:PFX_BASE64) {
+          Write-Host '::warning::FORK_PFX_BASE64 / FORK_PFX_PASSWORD are not set - the package will not be signed.'
+          exit 0
+        }
+
+        $pfxPath = Join-Path $env:RUNNER_TEMP 'fork-signing.pfx'
+        [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_BASE64))
+
+        $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($pfxPath, $env:PFX_PASSWORD)
+        Write-Host "certificate subject : $($cert.Subject)"
+        Write-Host "certificate expires : $($cert.NotAfter)"
+        Write-Host "certificate thumbprint: $($cert.Thumbprint)"
+
+        # The package publisher must be exactly the certificate subject, or signing (and
+        # installing) fails. Ask MSBuild for the effective value so there is one source of truth.
+        # A single -getProperty: prints the raw value; MSBuild only wraps the result in JSON
+        # when two or more properties are requested.
+        $publisher = '${{ vars.FORK_APPX_PUBLISHER }}'
+        if (-not $publisher) {
+          $out = msbuild $env:APP_PROJECT_PATH -getProperty:ForkAppxPublisher `
+            -p:Configuration=$env:CONFIGURATION -p:Platform=$env:PLATFORM -v:quiet
+          $publisher = ($out | Where-Object { $_.Trim() } | Select-Object -Last 1).Trim()
+          if ($publisher -eq '}') {
+            $publisher = ($out -join "`n" | ConvertFrom-Json).Properties.ForkAppxPublisher
+          }
+        }
+        Write-Host "package publisher   : $publisher"
+        if ($cert.Subject -ne $publisher) {
+          throw "Certificate subject '$($cert.Subject)' does not match the package publisher '$publisher'."
+        }
+
+        "path=$pfxPath" >> $env:GITHUB_OUTPUT
+
+    - name: Restore
+      shell: pwsh
+      run: |
+        msbuild ${{ github.workspace }}\Files.slnx -t:Restore `
+          -p:Configuration=$env:CONFIGURATION -p:Platform=$env:PLATFORM -v:quiet
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+    - name: Build and package
+      shell: pwsh
+      env:
+        PFX_PASSWORD: ${{ secrets.FORK_PFX_PASSWORD }}
+      run: |
+        $args = @(
+          $env:APP_PROJECT_PATH,
+          '-t:Build',
+          "-p:Configuration=$env:CONFIGURATION",
+          "-p:Platform=$env:PLATFORM",
+          '-p:AppxBundle=Always',
+          "-p:AppxBundlePlatforms=$env:PLATFORM",
+          '-p:GenerateAppxPackageOnBuild=true',
+          '-p:UapAppxPackageBuildMode=SideloadOnly',
+          "-p:AppxPackageDir=$env:APPX_PACKAGE_DIR"
+        )
+
+        if ('${{ vars.FORK_APPX_PUBLISHER }}') {
+          $args += "-p:ForkAppxPublisher=${{ vars.FORK_APPX_PUBLISHER }}"
+        }
+        if ('${{ steps.version.outputs.value }}') {
+          $args += "-p:ForkAppxVersion=${{ steps.version.outputs.value }}"
+        }
+
+        $keyFile = '${{ steps.signing.outputs.path }}'
+        if ($keyFile) {
+          # The password is passed through the environment, not the command line.
+          $env:PackageCertificatePassword = $env:PFX_PASSWORD
+          $args += '-p:AppxPackageSigningEnabled=true', "-p:PackageCertificateKeyFile=$keyFile", '-p:PackageCertificateThumbprint='
+        } else {
+          $args += '-p:AppxPackageSigningEnabled=false'
+        }
+
+        msbuild @args -v:quiet -clp:ErrorsOnly
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+    - name: Upload the package
+      uses: actions/upload-artifact@v4
+      with:
+        name: Files-fork-${{ steps.version.outputs.value || github.sha }}
+        path: |
+          artifacts/AppxPackages/**/*.msixbundle
+          artifacts/AppxPackages/**/*.msix
+          artifacts/AppxPackages/**/*.cer
+          artifacts/AppxPackages/**/*.appinstaller
+        if-no-files-found: error
+
+    - name: Publish the release
+      if: github.ref_type == 'tag'
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        $files = Get-ChildItem -Recurse -File artifacts/AppxPackages -Include *.msixbundle, *.msix, *.cer, *.appinstaller
+        if (-not $files) { throw 'No package was produced.' }
+        $files | ForEach-Object { Write-Host $_.FullName }
+        gh release create "$env:GITHUB_REF_NAME" `
+          --title "Files fork $env:GITHUB_REF_NAME" `
+          --generate-notes `
+          $files.FullName
