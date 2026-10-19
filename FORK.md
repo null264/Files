@@ -10,30 +10,55 @@ as a patch series on top of upstream `main`, so syncing upstream is a **rebase**
 | branch | role |
 | --- | --- |
 | `main` | Pristine mirror of `upstream/main`. Fast-forward only — never commit here. |
-| `fork/main` | `upstream/main` + the patch series below. Build and release from here. |
+| `build/custom` | `upstream/main` + the patch series below. Build and release from here. |
 | `backup/*` | Snapshots of the pre-restructure state (2026-10-11) and the old stash. |
+
+Exactly one branch carries the patch series. The same commits living on two branches and each
+branch being rebased is what duplicates history: the two copies get different SHAs, so a later
+merge treats them as distinct commits. Rebase `build/custom` only, and let a work branch follow
+it with `--onto` (below) — never merge a work branch into it.
 
 ## Syncing upstream
 
     python fork/sync-upstream.py            # fetch + mirror + rebase + range-diff report
-    python fork/sync-upstream.py --push     # ... and force-push fork/main at the end
+    python fork/sync-upstream.py --push     # ... and force-push build/custom at the end
 
 By hand it is:
 
     git fetch upstream
-    git switch main      && git merge --ff-only upstream/main   # keep the mirror clean
-    git switch fork/main && git rebase upstream/main            # replay the patch series
-    git range-diff upstream/main@{1}..fork/main@{1} upstream/main..fork/main
-    git push --force-with-lease origin fork/main                # CI builds the result
+    git switch main          && git merge --ff-only upstream/main   # keep the mirror clean
+    git switch build/custom  && git rebase upstream/main            # replay the patch series
+    git range-diff upstream/main@{1}..build/custom@{1} upstream/main..build/custom
+    git push --force-with-lease origin build/custom                 # replace the rewritten series
 
-- `git config rerere.enabled true` + `rerere.autoupdate true` are set, so a conflict that was
-  resolved once is replayed automatically the next time.
+Because the series exists on one branch only, it does not matter how late the rebase happens:
+`git rebase upstream/main` replays it exactly once.
+
+- Work that needs its own branch: branch off `build/custom`, commit only that change, then
+
+      git switch build/custom && git rebase upstream/main
+      git switch fix/xxx      && git rebase --onto build/custom <sha it forked from>
+      git switch build/custom && git merge --ff-only fix/xxx && git branch -d fix/xxx
+
+  A plain `git rebase upstream/main` on the work branch replays the whole series a second time —
+  that is the duplicate-history trap, and it is why the merge that follows cannot be avoided
+  afterwards.
 - Never `git checkout --ours/--theirs` a whole file: it silently drops the other side's
   non-conflicting changes. Resolve per hunk.
 - After a rebase, prefer `git range-diff` over eyeballing: it shows whether the rebase changed
   anything beyond adapting to upstream.
 
-## Patch series (`upstream/main..fork/main`)
+## Local setup (once per clone)
+
+    git config rerere.enabled true
+    git config rerere.autoupdate true
+
+A local pre-push guard (kept outside this repository and excluded through `.git/info/exclude`)
+refuses a push whose range contains merge commits or the same patch twice — the two fingerprints
+of a series that was rebased on two branches. Override deliberately with
+`PREPUSH_ALLOW_HISTORY=1 git push ...`.
+
+## Patch series (`upstream/main..build/custom`)
 
 | # | commit | what / why | upstreamable? |
 | --- | --- | --- | --- |
@@ -140,9 +165,9 @@ be exportable together with its private key.
 
     git tag v4.2.39.1 && git push origin v4.2.39.1   # build + sign + release
 
-Every push to `fork/main` also builds and uploads a package artifact — that is the automatic
-verification after each upstream sync. Without the secrets the workflow warns and produces an
-unsigned package instead of failing.
+After an upstream sync, dispatch `Fork build` by hand (or push a `v*` tag) to get a package
+artifact as verification — pushing `build/custom` does not trigger the workflow. Without the
+secrets the workflow warns and produces an unsigned package instead of failing.
 
 
 ## Local build

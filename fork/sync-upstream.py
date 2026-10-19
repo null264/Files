@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Sync this fork with upstream.
 
-Mirrors `main` to `upstream/main`, rebases the patch series on `fork/main` on top of it, and
+Mirrors `main` to `upstream/main`, rebases the patch series on `build/custom` on top of it, and
 reports what the rebase changed (so a lost or mangled resolution is visible immediately).
 
     python fork/sync-upstream.py           # fetch + mirror + rebase + range-diff (no push)
-    python fork/sync-upstream.py --push    # ... then force-push fork/main
+    python fork/sync-upstream.py --push    # ... then force-push build/custom
 
 `git rerere` is enabled in this repo, so a conflict that was resolved once is replayed
 automatically.  Never `git checkout --ours/--theirs` a whole file: it silently drops the other
@@ -17,7 +17,7 @@ import sys
 
 UPSTREAM = "upstream"
 MIRROR = "main"
-WORK = "fork/main"
+WORK = "build/custom"
 
 
 def git(*args, check=True):
