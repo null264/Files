@@ -528,7 +528,7 @@ namespace Files.App.Utils.Storage
 				cts.Cancel();
 
 				return (await moveTcs.Task, shellOperationResult);
-			}, App.Logger, App.WindowHideToken, Timeout.Infinite);
+			}, App.Logger, App.WindowHideToken);
 		}
 
 		public static Task<(bool, ShellOperationResult)> CopyItemAsync(string[] fileToCopyPath, string[] copyDestination, bool overwriteOnCopy, long ownerHwnd, bool asAdmin, IProgress<StatusCenterItemProgressModel> progress, string operationID = "")
@@ -669,7 +669,7 @@ namespace Files.App.Utils.Storage
 				cts.Cancel();
 
 				return (await copyTcs.Task, shellOperationResult);
-			}, App.Logger, App.WindowHideToken, Timeout.Infinite);
+			}, App.Logger, App.WindowHideToken);
 		}
 
 		public static void TryCancelOperation(string operationId)

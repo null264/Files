@@ -26,7 +26,7 @@ namespace Files.App.Storage
 		public static int MinimumWorkerCount { get; set; } = 0;
 		public static int MaximumWorkerCount { get; set; } = 32;
 		public static int WorkerIdleTimeoutSeconds { get; set; } = 30;
-		public const long DefaultWorkerExecuteTimeoutSeconds = 20;
+		public static TimeSpan WorkerExecuteTimeout = Timeout.InfiniteTimeSpan;
 		/// <summary>
 		/// Initializes a new pool with the specified number of STA worker threads.
 		/// </summary>
@@ -106,51 +106,51 @@ namespace Files.App.Storage
 		/// <summary>
 		/// Enqueues a synchronous <see cref="Action"/> for execution on an STA thread.
 		/// </summary>
-		public Task Enqueue(Action<CancellationToken> action, ILogger? logger, CancellationToken token, long executeTimeout = DefaultWorkerExecuteTimeoutSeconds)
+		public Task Enqueue(Action<CancellationToken> action, ILogger? logger, CancellationToken token)
 		{
 			ThrowIfDisposed();
 			var item = new SyncActionWorkItem(action, logger, token);
 			_workQueue.Add(item);
 			SpawnNewWorkerIfNeeded();
-			return CreateWaitTaskWithTimeout(item.Task, executeTimeout == Timeout.Infinite ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(executeTimeout));
+			return CreateWaitTaskWithTimeout(item.Task, WorkerExecuteTimeout);
 		}
 
 		/// <summary>
 		/// Enqueues a synchronous <see cref="Func{T}"/> for execution on an STA thread.
 		/// </summary>
-		public Task<T> Enqueue<T>(Func<CancellationToken, T> func, ILogger? logger, CancellationToken token, long executeTimeout = DefaultWorkerExecuteTimeoutSeconds)
+		public Task<T> Enqueue<T>(Func<CancellationToken, T> func, ILogger? logger, CancellationToken token)
 		{
 			ThrowIfDisposed();
 			var item = new SyncFuncWorkItem<T>(func, logger, token);
 			_workQueue.Add(item);
 			SpawnNewWorkerIfNeeded();
-			return CreateWaitTaskWithTimeout(item.Task, executeTimeout == Timeout.Infinite ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(executeTimeout));
+			return CreateWaitTaskWithTimeout(item.Task, WorkerExecuteTimeout);
 		}
 
 		/// <summary>
 		/// Enqueues an async delegate (<see cref="Func{Task}"/>) for execution on an STA thread.
 		/// The STA thread is freed after the synchronous portion (up to the first await) completes.
 		/// </summary>
-		public Task EnqueueAsync(Func<CancellationToken, Task> func, ILogger? logger, CancellationToken token, long executeTimeout = DefaultWorkerExecuteTimeoutSeconds)
+		public Task EnqueueAsync(Func<CancellationToken, Task> func, ILogger? logger, CancellationToken token)
 		{
 			ThrowIfDisposed();
 			var item = new AsyncActionWorkItem(func, logger, token);
 			_workQueue.Add(item);
 			SpawnNewWorkerIfNeeded();
-			return CreateWaitTaskWithTimeout(item.Task, executeTimeout == Timeout.Infinite ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(executeTimeout));
+			return CreateWaitTaskWithTimeout(item.Task, WorkerExecuteTimeout);
 		}
 
 		/// <summary>
 		/// Enqueues an async delegate (<see cref="Func{Task{T}}"/>) for execution on an STA thread.
 		/// The STA thread is freed after the synchronous portion (up to the first await) completes.
 		/// </summary>
-		public Task<T?> EnqueueAsync<T>(Func<CancellationToken, Task<T>> func, ILogger? logger, CancellationToken token, long executeTimeout = DefaultWorkerExecuteTimeoutSeconds)
+		public Task<T?> EnqueueAsync<T>(Func<CancellationToken, Task<T>> func, ILogger? logger, CancellationToken token)
 		{
 			ThrowIfDisposed();
 			var item = new AsyncFuncWorkItem<T>(func, logger, token);
 			_workQueue.Add(item);
 			SpawnNewWorkerIfNeeded();
-			return CreateWaitTaskWithTimeout(item.Task, executeTimeout == Timeout.Infinite ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(executeTimeout));
+			return CreateWaitTaskWithTimeout(item.Task, WorkerExecuteTimeout);
 		}
 
 		private async Task CreateWaitTaskWithTimeout(Task task, TimeSpan executeTimeout)
