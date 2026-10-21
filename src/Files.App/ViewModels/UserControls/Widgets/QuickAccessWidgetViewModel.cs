@@ -83,7 +83,7 @@ namespace Files.App.ViewModels.UserControls.Widgets
 
 				var refreshVersion = ++_refreshVersion;
 				var homeFolder = HomePageContext.HomeFolder;
-				var folders = await STATask.RunPooled(() =>
+				var folders = await STATask.Run(() =>
 				{
 					List<FolderSnapshot> result = [];
 					// The Shell enumerator and its metadata reads stay on this persistent STA.

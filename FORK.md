@@ -62,10 +62,11 @@ of a series that was rebased on two branches. Override deliberately with
 
 | # | commit | what / why | upstreamable? |
 | --- | --- | --- | --- |
-| 1 | Feature: Cache decoded bitmaps behind an xxhash-keyed MemoryCache | `BitmapHelper.ToBitmapAsync` becomes `ValueTask` and caches decoded `BitmapImage`s keyed by `XxHash64(data)` + decode size (400 entries, 5 min sliding / 15 min absolute). | Possibly, but cache sizing is preference. |
-| 2 | Fix: Stop layout timers when navigating away and drop redundant `ToList` calls | Leaked `DispatcherTimer`s after navigation (`jumpTimer`, `dragOverTimer`, `tapDebounceTimer`, `hoverTimer`, `doubleClickTimer`) and a few redundant `ToList()` calls before LINQ. | Yes — small and generic. |
-| 3 | Build: Pin the patched SQLite native library | Adds `SQLitePCLRaw.lib.e_sqlite3` so the bundled native sqlite is the patched one. | No (fork policy). |
-| 4 | Build: Keep upstream packaging files untouched and inject the fork identity at build time | See below. | n/a |
+| 1 | Feature: Use a dynamic STA worker pool | Replaces per-call STA `Thread` creation with a bounded, self-sizing pool (`STATaskPool`, `STATaskWorkItem`) that reuses STA workers and retires idle ones; the public `STATask.Run` overloads keep upstream's signatures. | The pool alone could be proposed upstream. |
+| 2 | Feature: Cache decoded bitmaps behind an xxhash-keyed MemoryCache | `BitmapHelper.ToBitmapAsync` becomes `ValueTask` and caches decoded `BitmapImage`s keyed by `XxHash64(data)` + decode size (400 entries, 5 min sliding / 15 min absolute). | Possibly, but cache sizing is preference. |
+| 3 | Fix: Stop layout timers when navigating away and drop redundant `ToList` calls | Leaked `DispatcherTimer`s after navigation (`jumpTimer`, `dragOverTimer`, `tapDebounceTimer`, `hoverTimer`, `doubleClickTimer`) and a few redundant `ToList()` calls before LINQ. | Yes — small and generic. |
+| 4 | Build: Pin the patched SQLite native library | Adds `SQLitePCLRaw.lib.e_sqlite3` so the bundled native sqlite is the patched one. | No (fork policy). |
+| 5 | Build: Keep upstream packaging files untouched and inject the fork identity at build time | See below. | n/a |
 
 ## Build-time inputs (upstream files are not edited for these)
 
