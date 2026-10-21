@@ -138,17 +138,8 @@ namespace Files.App
 
 				if (!isStartupTask)
 				{
-					// Initialize and activate MainWindow
-					MainWindow.Instance.Activate();
-
-					if (showSplashScreen)
-					{
-						// Wait for the Window to initialize
-						await Task.Delay(10);
-
-						SplashScreenLoadingTCS = new TaskCompletionSource();
-						MainWindow.Instance.ShowSplashScreen();
-					}
+					// Construct the window while appearance settings are loaded.
+					_ = MainWindow.Instance;
 				}
 
 				// Configure the DI (dependency injection) container
