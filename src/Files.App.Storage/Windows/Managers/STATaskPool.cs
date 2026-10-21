@@ -129,7 +129,8 @@ namespace Files.App.Storage
 
 		/// <summary>
 		/// Enqueues an async delegate (<see cref="Func{Task}"/>) for execution on an STA thread.
-		/// The STA thread is freed after the synchronous portion (up to the first await) completes.
+		/// The worker keeps the delegate's STA apartment: it installs a <see cref="StaSynchronizationContext"/>
+		/// and pumps it until the returned task completes.
 		/// </summary>
 		public Task EnqueueAsync(Func<Task> func, ILogger? logger)
 		{
@@ -142,7 +143,8 @@ namespace Files.App.Storage
 
 		/// <summary>
 		/// Enqueues an async delegate (<see cref="Func{Task{T}}"/>) for execution on an STA thread.
-		/// The STA thread is freed after the synchronous portion (up to the first await) completes.
+		/// The worker keeps the delegate's STA apartment: it installs a <see cref="StaSynchronizationContext"/>
+		/// and pumps it until the returned task completes.
 		/// </summary>
 		public Task<T?> EnqueueAsync<T>(Func<Task<T>> func, ILogger? logger)
 		{

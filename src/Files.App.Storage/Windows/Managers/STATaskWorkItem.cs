@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.Extensions.Logging;
+using System.Threading;
 
 namespace Files.App.Storage
 {
@@ -92,9 +93,8 @@ namespace Files.App.Storage
 
 	/// <summary>
 	/// Work item that executes an async delegate (<see cref="Func{Task}"/>) on an STA thread.
-	/// The STA thread runs the delegate synchronously up to the first await (where COM setup
-	/// typically happens), then frees itself for the next work item. The continuation bridges
-	/// the result back to the caller when the inner Task completes.
+	/// The delegate runs with a <see cref="StaSynchronizationContext"/> installed and the worker pumps
+	/// it until the returned task completes, so continuations after an await stay on the same STA thread.
 	/// </summary>
 	internal sealed class AsyncActionWorkItem : WorkItemBase
 	{
@@ -113,27 +113,30 @@ namespace Files.App.Storage
 
 		public override void Execute()
 		{
+			var previousContext = SynchronizationContext.Current;
+			using var syncContext = new StaSynchronizationContext();
+			SynchronizationContext.SetSynchronizationContext(syncContext);
+
 			try
 			{
 				var innerTask = _func();
 
-				if (innerTask.IsCompleted)
-				{
-					CompleteFromCompletedTask(innerTask);
-				}
-				else
-				{
-					// Bridge the continuation — the STA thread is freed immediately
-					innerTask.ContinueWith(
-						CompleteFromCompletedTask,
-						TaskContinuationOptions.ExecuteSynchronously);
-				}
+				// Pump posted continuations instead of freeing the worker, so post-await code
+				// keeps running on this STA thread.
+				if (!innerTask.IsCompleted)
+					syncContext.Run(innerTask);
+
+				CompleteFromCompletedTask(innerTask);
 			}
 			catch (Exception ex)
 			{
 				// Exception thrown synchronously before the first await
 				LogException(ex, _logger);
 				_tcs.SetResult();
+			}
+			finally
+			{
+				SynchronizationContext.SetSynchronizationContext(previousContext);
 			}
 		}
 
@@ -159,8 +162,8 @@ namespace Files.App.Storage
 
 	/// <summary>
 	/// Work item that executes an async delegate (<see cref="Func{Task{T}}"/>) on an STA thread.
-	/// Same bridging pattern as <see cref="AsyncActionWorkItem"/>: the STA thread runs the delegate
-	/// synchronously up to the first await, then frees itself.
+	/// Same pumping pattern as <see cref="AsyncActionWorkItem"/>: the worker keeps the
+	/// <see cref="StaSynchronizationContext"/> installed until the returned task completes.
 	/// </summary>
 	internal sealed class AsyncFuncWorkItem<T> : WorkItemBase
 	{
@@ -179,27 +182,30 @@ namespace Files.App.Storage
 
 		public override void Execute()
 		{
+			var previousContext = SynchronizationContext.Current;
+			using var syncContext = new StaSynchronizationContext();
+			SynchronizationContext.SetSynchronizationContext(syncContext);
+
 			try
 			{
 				var innerTask = _func();
 
-				if (innerTask.IsCompleted)
-				{
-					CompleteFromCompletedTask(innerTask);
-				}
-				else
-				{
-					// Bridge the continuation — the STA thread is freed immediately
-					innerTask.ContinueWith(
-						CompleteFromCompletedTask,
-						TaskContinuationOptions.ExecuteSynchronously);
-				}
+				// Pump posted continuations instead of freeing the worker, so post-await code
+				// keeps running on this STA thread.
+				if (!innerTask.IsCompleted)
+					syncContext.Run(innerTask);
+
+				CompleteFromCompletedTask(innerTask);
 			}
 			catch (Exception ex)
 			{
 				// Exception thrown synchronously before the first await
 				LogException(ex, _logger);
 				_tcs.SetResult(default);
+			}
+			finally
+			{
+				SynchronizationContext.SetSynchronizationContext(previousContext);
 			}
 		}
 
