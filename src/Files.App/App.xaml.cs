@@ -48,8 +48,6 @@ namespace Files.App
 		public static AppModel AppModel { get; private set; } = null!;
 		public static ILogger Logger { get; private set; } = NullLogger.Instance;
 
-		private static CancellationTokenSource _hideCts = new();
-		public static CancellationToken WindowHideToken => _hideCts.Token;
 
 		public static Microsoft.UI.Dispatching.DispatcherQueue? UiDispatcher { get; private set; }
 

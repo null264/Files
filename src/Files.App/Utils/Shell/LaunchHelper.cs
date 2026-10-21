@@ -160,7 +160,7 @@ namespace Files.App.Utils.Shell
 				{
 					try
 					{
-						var opened = await STATask.Run(async token =>
+						var opened = await STATask.Run(async () =>
 						{
 							var split = application.Split('|').Where(x => !string.IsNullOrWhiteSpace(x)).Select(GetMtpPath).ToArray();
 							if (split.Length == 1)
@@ -191,16 +191,15 @@ namespace Files.App.Utils.Shell
 							}
 
 							return true;
-						}, App.Logger, App.WindowHideToken);
+						}, App.Logger);
 
 						if (!opened)
 						{
 							if (application.StartsWith(@"\\SHELL\", StringComparison.Ordinal))
 							{
-								opened = await STATask.Run(async token =>
+								opened = await STATask.Run(async () =>
 								{
 									using var cMenu = await ContextMenu.GetContextMenuForFiles(new[] { application }, PInvoke.CMF_DEFAULTONLY);
-									token.ThrowIfCancellationRequested();
 
 									if (cMenu is not null)
 									{
@@ -210,7 +209,7 @@ namespace Files.App.Utils.Shell
 									}
 
 									return true;
-								}, App.Logger, App.WindowHideToken);
+								}, App.Logger);
 							}
 						}
 

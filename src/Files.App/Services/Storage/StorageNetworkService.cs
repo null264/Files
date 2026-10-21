@@ -96,14 +96,13 @@ namespace Files.App.Services
 		/// <inheritdoc/>
 		public async Task<IEnumerable<IFolder>> GetShortcutsAsync()
 		{
-			var networkLocations = await STATask.Run(token =>
+			var networkLocations = await STATask.Run(() =>
 			{
 				var locations = new List<ShellLinkItem>();
 				using (var netHood = new ShellFolder(PInvoke.FOLDERID_NetHood))
 				{
 					foreach (var item in netHood)
 					{
-						token.ThrowIfCancellationRequested();
 						if (item is ShellLink link)
 						{
 							if (ShellFolderExtensions.GetShellLinkItem(link) is { } linkItem)
@@ -121,7 +120,7 @@ namespace Files.App.Services
 					}
 				}
 				return locations;
-			}, App.Logger, App.WindowHideToken);
+			}, App.Logger);
 
 			return (networkLocations ?? Enumerable.Empty<ShellLinkItem>()).Select(item =>
 			{
@@ -188,13 +187,13 @@ namespace Files.App.Services
 		/// <inheritdoc/>
 		public Task<NetworkAvailability?> GetNetworkAvailabilityAsync()
 		{
-			return STATask.Run<NetworkAvailability?>(token => DetectionAndSharingHelper.GetNetworkAvailability(), App.Logger, App.WindowHideToken);
+			return STATask.Run<NetworkAvailability?>(() => DetectionAndSharingHelper.GetNetworkAvailability(), App.Logger);
 		}
 
 		/// <inheritdoc/>
 		public Task OpenNetworkSharingSettingsAsync()
 		{
-			return STATask.Run(DetectionAndSharingHelper.OpenNetworkSharingSettings, App.Logger, App.WindowHideToken);
+			return STATask.Run(DetectionAndSharingHelper.OpenNetworkSharingSettings, App.Logger);
 		}
 
 		/// <inheritdoc/>
@@ -211,13 +210,13 @@ namespace Files.App.Services
 		/// <inheritdoc/>
 		public Task OpenMapNetworkDriveDialogAsync()
 		{
-			return STATask.Run(token =>
+			return STATask.Run(() =>
 			{
 				return CommonDialogService.Open_NetworkConnectionDialog(
 					MainWindow.Instance.WindowHandle,
 					useMostRecentPath: true,
 					hideRestoreConnectionCheckBox: false);
-			}, App.Logger, App.WindowHideToken);
+			}, App.Logger);
 		}
 
 		/// <inheritdoc/>

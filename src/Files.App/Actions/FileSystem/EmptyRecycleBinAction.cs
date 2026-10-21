@@ -1,4 +1,4 @@
-﻿// Copyright (c) Files Community
+// Copyright (c) Files Community
 // Licensed under the MIT License.
 
 using Microsoft.UI.Xaml.Controls;
@@ -58,7 +58,7 @@ namespace Files.App.Actions
 			{
 				var banner = StatusCenterHelper.AddCard_EmptyRecycleBin(ReturnResult.InProgress);
 
-				bool result = await STATask.Run(_ => StorageTrashBinService.EmptyTrashBin(), App.Logger);
+				bool result = await STATask.Run(StorageTrashBinService.EmptyTrashBin, App.Logger);
 
 				StatusCenterViewModel.RemoveItem(banner);
 

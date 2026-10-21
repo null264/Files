@@ -136,7 +136,7 @@ namespace Files.App.Services
 		/// <inheritdoc/>
 		public async Task<bool> RestoreAllTrashesAsync()
 		{
-			return await STATask.Run(token =>
+			return await STATask.Run(() =>
 			{
 				try
 				{
@@ -148,7 +148,7 @@ namespace Files.App.Services
 				{
 					return false;
 				}
-			}, App.Logger, App.WindowHideToken);
+			}, App.Logger);
 		}
 
 		private unsafe bool RestoreAllTrashesInternal()

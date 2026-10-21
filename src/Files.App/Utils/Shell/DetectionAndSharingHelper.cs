@@ -25,7 +25,7 @@ namespace Files.App.Utils.Shell
 			return availability;
 		}
 
-		public static unsafe void OpenNetworkSharingSettings(CancellationToken token)
+		public static unsafe void OpenNetworkSharingSettings()
 		{
 			HRESULT hr = PInvoke.CoCreateInstance(CLSID.CLSID_OpenControlPanel, null, CLSCTX.CLSCTX_INPROC_SERVER, out IOpenControlPanel? controlPanel);
 			ThrowIfFailed(hr, "Failed to create open control panel object.");

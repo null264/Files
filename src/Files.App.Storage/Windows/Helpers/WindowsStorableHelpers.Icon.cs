@@ -25,11 +25,11 @@ namespace Files.App.Storage
 		/// <inheritdoc cref="TryGetThumbnail"/>
 		public static async Task<byte[]?> GetThumbnailAsync(this IWindowsStorable storable, int size, SIIGBF options)
 		{
-			return await STATask.Run(token =>
+			return await STATask.Run(() =>
 			{
 				HRESULT hr = storable.TryGetThumbnail(size, options, out var thumbnailData).ThrowIfFailedOnDebug();
 				return thumbnailData;
-			}, null, CancellationToken.None);
+			}, null);
 		}
 
 		/// <summary>

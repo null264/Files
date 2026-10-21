@@ -367,19 +367,12 @@ namespace Files.App.Data.Items
 		{
 			if (!string.IsNullOrEmpty(DeviceID) && !string.Equals(DeviceID, "network-folder"))
 			{
-				byte[]? result = null;
-				try
-				{
-					result = await FileThumbnailHelper.GetIconAsync(
+				var result = await FileThumbnailHelper.GetIconAsync(
 					DeviceID,
 					Constants.ShellIconSizes.Small,
 					false,
 					IconOptions.ReturnIconOnly);
-				}
-				catch (TaskTimeLimitExceededException)
-				{
-					Debug.WriteLine($"Failed to load icon for {DeviceID}, reason: timed out");
-				}
+
 				IconData ??= result;
 			}
 

@@ -21,7 +21,7 @@ namespace Files.App.Helpers
 				path = $"shell:{path}";
 			}
 
-			return await STATask.Run(token =>
+			return await STATask.Run(() =>
 			{
 				var flc = new List<ShellFileItem>();
 				ShellFileItem? folder = null;
@@ -29,7 +29,6 @@ namespace Files.App.Helpers
 				try
 				{
 					using var shellFolder = ShellFolderExtensions.GetShellItemFromPathOrPIDL(path) as ShellFolder;
-					token.ThrowIfCancellationRequested();
 					using ShellFolder _controlPanel = new(PInvoke.FOLDERID_ControlPanelFolder);
 					using ShellFolder _controlPanelCategoryView = new("::{26EE0668-A00A-44D7-9371-BEB064C98683}");
 
@@ -79,7 +78,7 @@ namespace Files.App.Helpers
 				}
 
 				return (folder, flc);
-			}, App.Logger, App.WindowHideToken);
+			}, App.Logger);
 		}
 
 		public static unsafe string GetFolderFromKnownFolderGUID(Guid guid)

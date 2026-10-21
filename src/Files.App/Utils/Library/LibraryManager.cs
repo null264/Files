@@ -128,7 +128,7 @@ namespace Files.App.Utils.Library
 			if (string.IsNullOrWhiteSpace(name) || !CanCreateLibrary(name).result)
 				return false;
 
-			var shellLibrary = await STATask.Run(token =>
+			var shellLibrary = await STATask.Run(() =>
 			{
 				try
 				{
@@ -147,7 +147,7 @@ namespace Files.App.Utils.Library
 				}
 
 				return Task.FromResult<ShellLibraryItem?>(null);
-			}, App.Logger, App.WindowHideToken);
+			}, App.Logger);
 
 			if (shellLibrary is null)
 				return false;
@@ -175,7 +175,7 @@ namespace Files.App.Utils.Library
 				// Nothing to update
 				return null;
 
-			var item = await STATask.Run(token =>
+			var item = await STATask.Run(() =>
 			{
 				try
 				{
@@ -236,7 +236,7 @@ namespace Files.App.Utils.Library
 				}
 
 				return Task.FromResult<ShellLibraryItem?>(null);
-			}, App.Logger, App.WindowHideToken);
+			}, App.Logger);
 
 			var newLib = item is not null ? new LibraryLocationItem(item) : null;
 			if (newLib is not null)

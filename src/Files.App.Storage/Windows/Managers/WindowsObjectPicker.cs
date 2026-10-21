@@ -18,7 +18,7 @@ namespace Files.App.Storage
 		private const string ObjectSidAttributeName = "objectSid";
 
 		public static Task<string?> OpenObjectPickerAsync(nint ownerHWnd, ILogger? logger)
-			=> STATask.Run(token => OpenObjectPicker((HWND)ownerHWnd), logger, CancellationToken.None);
+			=> STATask.Run(() => OpenObjectPicker((HWND)ownerHWnd), logger);
 
 		private static string? OpenObjectPicker(HWND ownerHWnd)
 		{
