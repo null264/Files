@@ -47,6 +47,7 @@ namespace Files.App
 		public static AppModel AppModel { get; private set; } = null!;
 		public static ILogger Logger { get; private set; } = NullLogger.Instance;
 
+
 		public static Microsoft.UI.Dispatching.DispatcherQueue? UiDispatcher { get; private set; }
 
 		/// <summary>
@@ -128,6 +129,10 @@ namespace Files.App
 					serviceProvider = AppLifecycleHelper.ConfigureHost(appModel);
 					Ioc.Default.ConfigureServices(serviceProvider);
 				}
+
+				// Configure Sentry
+				if (AppLifecycleHelper.AppEnvironment is not AppEnvironment.Dev)
+					AppLifecycleHelper.ConfigureSentry();
 
 				var userSettingsService = Ioc.Default.GetRequiredService<IUserSettingsService>();
 				var serverInitialization = SafetyExtensions.IgnoreExceptions(async () =>

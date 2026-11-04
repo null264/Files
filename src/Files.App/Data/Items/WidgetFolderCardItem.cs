@@ -1,4 +1,4 @@
-﻿// Copyright (c) Files Community
+// Copyright (c) Files Community
 // Licensed under the MIT License.
 
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -50,7 +50,7 @@ namespace Files.App.Data.Items
 			if (hr.ThrowIfFailedOnDebug().Failed)
 				return;
 
-			var rawThumbnailData = await STATask.RunPooled(() =>
+			var rawThumbnailData = await STATask.Run(() =>
 			{
 				if (shellItemReference.Resolve(out IShellItem shellItem).ThrowIfFailedOnDebug().Failed)
 					return null;

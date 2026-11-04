@@ -1,9 +1,11 @@
 // Copyright (c) Files Community
 // Licensed under the MIT License.
 
+using System.IO;
+using System.IO.Hashing;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
-using System.IO;
 using Windows.Foundation.Metadata;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
@@ -13,7 +15,47 @@ namespace Files.App.Helpers
 {
 	internal static class BitmapHelper
 	{
-		public static async Task<BitmapImage?> ToBitmapAsync(this byte[]? data, int decodeSize = -1)
+		private static readonly MemoryCache ImageCache = new MemoryCache(new MemoryCacheOptions
+		{
+			SizeLimit = 400
+		});
+
+		public static async ValueTask<BitmapImage?> ToBitmapAsync(this byte[]? data, int decodeSize = -1)
+		{
+			if (data is null)
+				return null;
+
+			ulong hash = XxHash64.HashToUInt64(data);
+			var fullCacheKey = (ImageHash: hash, DecodeSize: decodeSize);
+
+			Task<BitmapImage?> bitmapTask = ImageCache.GetOrCreate(fullCacheKey, entry =>
+			{
+				entry.Size = 1;
+				entry.SlidingExpiration = TimeSpan.FromMinutes(5);
+				entry.AbsoluteExpiration = DateTimeOffset.Now.Add(TimeSpan.FromMinutes(15));
+
+				return CreateBitmapCoreAsync(data, decodeSize);
+			})!;
+
+			BitmapImage? result;
+			if (bitmapTask.IsCompletedSuccessfully)
+			{
+				result = bitmapTask.Result;
+			}
+			else
+			{
+				result = await bitmapTask;
+			}
+
+			if (result is null)
+			{
+				ImageCache.Remove(fullCacheKey);
+			}
+
+			return result;
+		}
+
+		public static async Task<BitmapImage?> CreateBitmapCoreAsync(byte[]? data, int decodeSize = -1)
 		{
 			if (data is null)
 			{
