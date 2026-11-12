@@ -1567,21 +1567,34 @@ namespace Files.App.ViewModels
 							{
 								App.Logger.LogWarning("Thumbnail load failed [{Id}] '{Extension}'; scheduling 2s timer retry.", item.GetRequiredPath().GetHashCode(), Path.GetExtension(item.ItemPath));
 
-								_ = Task.Delay(2000, retryToken)
-									.ContinueWith(_ =>
+								_ = StartDelayedRetryAsync();
+
+								async Task StartDelayedRetryAsync()
+								{
+									try
 									{
-										// Skip if another thread already took ownership of the entry
-										if (!thumbnailRetryDebounce.TryRemove(new KeyValuePair<string, CancellationTokenSource>(item.GetRequiredPath(), retryCts)))
-											return Task.CompletedTask;
+										await Task.Delay(2000, retryToken);
 
-										retryCts.Dispose();
+										if (thumbnailRetryDebounce.TryRemove(item.GetRequiredPath(), out var cts))
+										{
+											using (cts)
+											{
+												App.Logger.LogInformation("Timer-based thumbnail retry firing [{Id}] '{Extension}'.", item.GetRequiredPath().GetHashCode(), Path.GetExtension(item.GetRequiredPath()));
 
-										App.Logger.LogInformation("Timer-based thumbnail retry firing [{Id}] '{Extension}'.", item.GetRequiredPath().GetHashCode(), Path.GetExtension(item.ItemPath));
-
-										item.NeedsDelayedThumbnailLoad = false;
-										return LoadThumbnailAsync(item, retryToken, scheduleTimerRetry: false);
-									}, retryToken, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default)
-									.Unwrap();
+												item.NeedsDelayedThumbnailLoad = false;
+												await LoadThumbnailAsync(item, retryToken, scheduleTimerRetry: false);
+											}
+										}
+									}
+									catch (OperationCanceledException)
+									{
+										App.Logger.LogInformation("Thumbnail retry timer cancelled for '{Path}'.", item.GetRequiredPath());
+									}
+									catch (Exception ex)
+									{
+										App.Logger.LogError(ex, "Error occurred during thumbnail retry pipeline.");
+									}
+								}
 							}
 							else
 							{
@@ -2068,7 +2081,7 @@ namespace Files.App.ViewModels
 					IconOptions.ReturnIconOnly);
 
 				if (result is not null && !item.IsShortcut)
-					groupImage = await dispatcherQueue.EnqueueOrInvokeAsync(() => result.ToBitmapAsync(), Microsoft.UI.Dispatching.DispatcherQueuePriority.Low);
+					groupImage = await dispatcherQueue.EnqueueOrInvokeAsync(async () => await result.ToBitmapAsync(), Microsoft.UI.Dispatching.DispatcherQueuePriority.Low);
 
 				// The groupImage is null if loading icon from fulltrust process failed
 				if (!item.IsShortcut && !item.IsHiddenItem && !FtpHelpers.IsFtpPath(item.ItemPath) && groupImage is null)

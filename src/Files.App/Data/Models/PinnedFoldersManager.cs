@@ -92,6 +92,7 @@ namespace Files.App.Data.Models
 
 				ApplyReorderToPinnedItems();
 			}
+			catch (TaskCanceledException) { }
 			finally
 			{
 				addSyncSemaphore.Release();

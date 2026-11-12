@@ -223,6 +223,7 @@ namespace Files.App.Views.Layouts
 		protected override void OnNavigatingFrom(NavigatingCancelEventArgs e)
 		{
 			base.OnNavigatingFrom(e);
+			doubleClickTimer.Stop();
 			UserSettingsService.LayoutSettingsService.PropertyChanged -= LayoutSettingsService_PropertyChanged;
 			var shellViewModel = ParentShellPageInstance.GetRequiredShellViewModel();
 			shellViewModel.ItemLoadStatusChanged -= OnItemLoadStatusChanged;
@@ -341,6 +342,7 @@ namespace Files.App.Views.Layouts
 
 		public override void Dispose()
 		{
+			doubleClickTimer.Stop();
 			Bindings.StopTracking();
 			storageArchiveService.CompressionCompleted -= StorageArchiveService_CompressionCompleted;
 			UserSettingsService.LayoutSettingsService.PropertyChanged -= LayoutSettingsService_PropertyChanged;
