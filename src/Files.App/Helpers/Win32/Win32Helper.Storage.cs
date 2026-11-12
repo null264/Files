@@ -354,7 +354,10 @@ namespace Files.App.Helpers
 		public static Task<bool> MountVhdDisk(string vhdPath)
 		{
 			// Mounting requires elevation
-			return RunPowershellCommandAsync($"-command \"Mount-DiskImage -ImagePath {ToPowerShellStringLiteral(vhdPath)}\"", PowerShellExecutionOptions.Elevated | PowerShellExecutionOptions.Hidden);
+			//return RunPowershellCommandAsync($"-command \"Mount-DiskImage -ImagePath '{vhdPath}'\"", PowerShellExecutionOptions.Elevated | PowerShellExecutionOptions.Hidden);
+			// explorer.exe returns 1 even on success, and PowerShell propagates a native command's exit
+			// code, so the trailing "exit 0" is what makes RunPowershellCommandAsync report success.
+			return RunPowershellCommandAsync($"explorer {ToPowerShellStringLiteral(vhdPath)}; exit 0", PowerShellExecutionOptions.Hidden);
 		}
 
 		public static Bitmap? GetBitmapFromHBitmap(HBITMAP bitmap) => ShellImage.GetBitmapFromHBitmap(bitmap);

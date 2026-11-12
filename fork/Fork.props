@@ -1,0 +1,43 @@
+<!--  Fork-owned build inputs, imported from Directory.Build.props.
+
+      Everything this fork customizes about packaging lives here so that upstream-owned
+      files stay byte-identical: the tracked Package.appxmanifest is never edited and the
+      package identity/version are stamped at build time instead.
+      CI can override any value: -p:ForkAppxPublisher=... -p:ForkAppxVersion=...  -->
+<Project>
+
+  <PropertyGroup>
+    <!--  Must match the subject of the certificate the package is signed with.  -->
+    <ForkAppxPublisher Condition="'$(ForkAppxPublisher)' == ''">CN=Null's FilesDev Fork, O=Nullsoft, C=CN</ForkAppxPublisher>
+
+    <!--  Optional release version (e.g. 4.2.39.1). Left empty, upstream's version is kept.  -->
+    <ForkAppxVersion Condition="'$(ForkAppxVersion)' == ''"></ForkAppxVersion>
+
+    <!--  Generated manifest: never tracked, lives with the other intermediates.  -->
+    <ForkAppxManifestPath>$(MSBuildProjectDirectory)\obj\Package.fork.appxmanifest</ForkAppxManifestPath>
+  </PropertyGroup>
+
+  <!--  Declared here (before any package targets are evaluated) so the MSIX tooling uses
+        our generated manifest instead of falling back to Package.appxmanifest.  -->
+  <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\Package.appxmanifest')">
+    <AppxManifest Include="$(ForkAppxManifestPath)" />
+  </ItemGroup>
+
+  <Target Name="GenerateForkAppxManifest"
+          Condition="Exists('$(MSBuildProjectDirectory)\Package.appxmanifest')"
+          BeforeTargets="_ValidatePresenceOfAppxManifestItems;_GenerateAppxManifest;_GenerateAppxPackageFile;Pack">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Package.appxmanifest"
+          DestinationFiles="$(ForkAppxManifestPath)"
+          SkipUnchangedFiles="false" />
+    <XmlPoke XmlInputPath="$(ForkAppxManifestPath)"
+             Query="/a:Package/a:Identity/@Publisher"
+             Value="$(ForkAppxPublisher)"
+             Namespaces="&lt;Namespace Prefix='a' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10'/&gt;" />
+    <XmlPoke Condition="'$(ForkAppxVersion)' != ''"
+             XmlInputPath="$(ForkAppxManifestPath)"
+             Query="/a:Package/a:Identity/@Version"
+             Value="$(ForkAppxVersion)"
+             Namespaces="&lt;Namespace Prefix='a' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10'/&gt;" />
+  </Target>
+
+</Project>

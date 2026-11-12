@@ -359,7 +359,7 @@ namespace Files.App.UserControls
 					e.Flyout.Items.Add(flyoutItem);
 
 					windowsStorable.TryGetThumbnail((int)(16f * App.AppModel.AppWindowDPI), Windows.Win32.UI.Shell.SIIGBF.SIIGBF_ICONONLY, out var thumbnailData);
-					flyoutItem.Icon = new ImageIcon() { Source = await MainWindow.Instance.DispatcherQueue.EnqueueOrInvokeAsync(() => thumbnailData.ToBitmapAsync(), Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal) };
+					flyoutItem.Icon = new ImageIcon() { Source = await MainWindow.Instance.DispatcherQueue.EnqueueOrInvokeAsync(async () => await thumbnailData.ToBitmapAsync(), Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal) };
 
 					windowsStorable.Dispose();
 
@@ -391,7 +391,7 @@ namespace Files.App.UserControls
 					e.Flyout.Items.Add(flyoutItem);
 
 					windowsStorable.TryGetThumbnail((int)(16f * App.AppModel.AppWindowDPI), Windows.Win32.UI.Shell.SIIGBF.SIIGBF_ICONONLY, out var thumbnailData);
-					flyoutItem.Icon = new ImageIcon() { Source = await MainWindow.Instance.DispatcherQueue.EnqueueOrInvokeAsync(() => thumbnailData.ToBitmapAsync(), Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal) };
+					flyoutItem.Icon = new ImageIcon() { Source = await MainWindow.Instance.DispatcherQueue.EnqueueOrInvokeAsync(async () => await thumbnailData.ToBitmapAsync(), Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal) };
 
 					windowsStorable.Dispose();
 

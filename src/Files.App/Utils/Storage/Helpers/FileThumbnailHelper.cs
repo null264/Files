@@ -48,7 +48,11 @@ namespace Files.App.Utils.Storage
 				}
 			}
 
-			return await GetServerIconAsync(path, (int)size, isFolder, (uint)iconOptions, false);
+			var resolvedPath = path is not null && path.StartsWith(@"\\?\", StringComparison.Ordinal)
+				? MtpHelpers.ResolveMtpShellPath(path) ?? path
+				: path;
+
+			return await STATask.Run(() => Win32Helper.GetIcon(resolvedPath, (int)size, isFolder, iconOptions), App.Logger);
 		}
 
 		/// <summary>
@@ -61,21 +65,7 @@ namespace Files.App.Utils.Storage
 		{
 			// Overlays render at 32px in thumbnail layouts and 16px in details/columns; scale by DPI so the badge isn't upscaled at fractional scaling
 			var overlaySize = (requestedSize >= 48 ? 32u : 16u) * App.AppModel.AppWindowDPI;
-			return await GetServerIconAsync(path, (int)overlaySize, isFolder, 0, true);
-		}
-
-		private static async Task<byte[]?> GetServerIconAsync(string? path, int size, bool isFolder, uint options, bool overlay)
-		{
-			try
-			{
-				var buffer = await Server.IconService.GetIconAsync(path ?? string.Empty, size, isFolder, options, overlay);
-				return buffer.Length == 0 ? null : buffer.ToArray();
-			}
-			catch (COMException ex)
-			{
-				App.Logger.LogInformation(ex, "Could not load an icon from the server.");
-				return null;
-			}
+			return await STATask.Run(() => Win32Helper.GetIconOverlay(path, (int)overlaySize, isFolder), App.Logger);
 		}
 
 		[Obsolete]

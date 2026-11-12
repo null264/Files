@@ -21,4 +21,7 @@
     <CsWinRTAotWarningLevel>3</CsWinRTAotWarningLevel>
 
   </PropertyGroup>
+
+  <!--  Fork-owned additions; see fork/Fork.props  -->
+  <Import Project="$(MSBuildThisFileDirectory)fork\Fork.props" Condition="Exists('$(MSBuildThisFileDirectory)fork\Fork.props')" />
 </Project>
